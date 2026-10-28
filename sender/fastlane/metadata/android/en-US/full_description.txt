@@ -1,0 +1,13 @@
+Beamline mirrors your Android phone's screen, with sound, to a Fire TV or Android TV on the same Wi-Fi that runs the Beamline TV app.
+
+* One tap in the app or in Quick Settings starts and stops mirroring.
+* Sound from your apps plays on the TV, in sync with the picture. Beamline only captures what apps play, never the microphone.
+* Smooth playback comes first: the TV keeps about a third of a second in hand, which hides short Wi-Fi hiccups.
+* After a Wi-Fi drop, mirroring picks up again by itself.
+* The phone stays awake, dimmed, while mirroring, because Android stops sending the picture once the phone locks. A switch turns this off.
+* In English and German.
+* No ads, accounts, subscriptions or tracking. Free software under the GPLv3.
+
+Copy-protected video (Netflix, Disney+ and similar) shows black when mirrored, as with every mirroring app. The phone's built-in Cast button can't target Beamline: start from the Beamline app or its Quick Settings tile.
+
+Needs Android 10 or newer, and the Beamline TV app on the TV.

@@ -1,0 +1,10 @@
+Beamline TV macht einen Fire TV oder Android TV zum Empfänger für die Bildschirmspiegelung von Android-Handys mit der Beamline-App.
+
+* Öffne Beamline auf dem Fernseher und tippe dann in der Handy-App oder auf ihre Kachel in den Schnelleinstellungen auf den Fernseher.
+* Flüssige, gleichmäßige Wiedergabe mit passendem Ton. Bei Videos mit 25 Bildern pro Sekunde schaltet der Fernseher auf 50 Hz, damit jedes Bild gleich lang zu sehen ist.
+* OK auf der Fernbedienung wechselt zwischen bildschirmfüllend und ganzem Bild.
+* Menü auf der Fernbedienung zeigt, wie die Spiegelung läuft: Bildrate, Verzögerung gegenüber dem Handy, WLAN-Schwankungen, verworfene Bilder und Tonlücken.
+* Auf Deutsch und Englisch.
+* Keine Werbung, keine Konten, keine Abos, kein Tracking. Freie Software unter der GPLv3.
+
+Läuft auf Fire TV ab Fire OS 6 und auf Android TV ab 7.1.

@@ -1,0 +1,13 @@
+Beamline spiegelt den Bildschirm deines Android-Handys samt Ton auf einen Fire TV oder Android TV im selben WLAN, auf dem die Beamline-TV-App läuft.
+
+* Ein Tipp in der App oder in den Schnelleinstellungen startet und beendet die Spiegelung.
+* Der Ton deiner Apps spielt am Fernseher, passend zum Bild. Beamline nimmt nur auf, was Apps abspielen, nie das Mikrofon.
+* Flüssige Wiedergabe geht vor: Der Fernseher hält etwa eine Drittelsekunde in Reserve und überbrückt so kurze WLAN-Aussetzer.
+* Nach einem WLAN-Abbruch verbindet sich die Spiegelung von selbst wieder.
+* Das Handy bleibt beim Spiegeln wach, mit abgedunkeltem Bildschirm, weil Android kein Bild mehr sendet, sobald das Handy gesperrt ist. Ein Schalter stellt das ab.
+* Auf Deutsch und Englisch.
+* Keine Werbung, keine Konten, keine Abos, kein Tracking. Freie Software unter der GPLv3.
+
+Kopiergeschützte Videos (Netflix, Disney+ und ähnliche) bleiben beim Spiegeln schwarz, wie bei jeder Spiegel-App. Die eingebaute Cast-Taste des Handys findet Beamline nicht: Starte aus der Beamline-App oder über die Kachel in den Schnelleinstellungen.
+
+Braucht Android 10 oder neuer und die Beamline-TV-App auf dem Fernseher.
