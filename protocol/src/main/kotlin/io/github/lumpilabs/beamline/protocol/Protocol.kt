@@ -8,6 +8,12 @@ object Protocol {
   /** DNS-SD service type the receiver registers. */
   const val SERVICE_TYPE = "_beamline._tcp"
 
+  /** TCP port the receiver listens on, so a manually entered address works without discovery. */
+  const val DEFAULT_PORT = 47800
+
+  /** Highest version both sides speak, or null if [offered] has none this build supports. */
+  fun negotiate(offered: List<Int>): Int? = offered.filter { it in 1..VERSION }.maxOrNull()
+
   /** TXT record keys of the receiver's DNS-SD service. */
   object Txt {
     const val VERSION = "v"

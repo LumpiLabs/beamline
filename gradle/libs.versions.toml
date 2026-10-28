@@ -2,6 +2,8 @@
 agp = "9.4.1"
 kotlin = "2.4.21"
 kotlinxSerialization = "1.12.0"
+kotlinxCoroutines = "1.11.0"
+jcodec = "0.2.5"
 composeBom = "2026.09.00"
 androidxActivity = "1.13.0"
 androidxCore = "1.19.1"
@@ -9,7 +11,10 @@ androidxTvMaterial = "1.1.0"
 
 [libraries]
 kotlinx-serialization-cbor = { module = "org.jetbrains.kotlinx:kotlinx-serialization-cbor", version.ref = "kotlinxSerialization" }
-kotlin-test-junit = { module = "org.jetbrains.kotlin:kotlin-test-junit", version.ref = "kotlin" }
+kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "kotlinxCoroutines" }
+jcodec = { module = "org.jcodec:jcodec", version.ref = "jcodec" }
+jcodec-javase = { module = "org.jcodec:jcodec-javase", version.ref = "jcodec" }
+kotlin-test-junit ={ module = "org.jetbrains.kotlin:kotlin-test-junit", version.ref = "kotlin" }
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidxCore" }
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidxActivity" }
 androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }

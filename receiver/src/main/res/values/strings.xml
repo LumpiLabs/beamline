@@ -3,5 +3,9 @@
   <string name="app_name">Beamline</string>
   <string name="idle_waiting">Waiting for a phone or tablet…</string>
   <string name="idle_device_name">This TV: %1$s</string>
+  <string name="idle_address">Address: %1$s</string>
+  <string name="idle_last_session_ended">Last session ended: %1$s</string>
+  <string name="connected_waiting_for_video">Connected to %1$s, waiting for the picture…</string>
+  <string name="error_local_network_denied">Beamline needs access to your local network to receive phones and tablets. Allow it in the app settings.</string>
   <string name="protocol_version">Protocol version %1$d</string>
 </resources>

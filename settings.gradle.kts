@@ -32,4 +32,5 @@ plugins {
 
 rootProject.name = "beamline"
 
-include(":protocol", ":sender", ":receiver")
+include(":protocol", ":sender", ":receiver", ":test-sender")
+project(":test-sender").projectDir = file("tools/test-sender")

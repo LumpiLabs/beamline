@@ -40,6 +40,13 @@ ANDROID_SERIAL=192.168.1.50:5555 ./gradlew :receiver:installDebug
 | `protocol` | Wire format shared by both apps (frames, control messages, pairing codes). |
 | `sender` | Android phone app, Android 10 and newer. |
 | `receiver` | Fire TV / Android TV app, Android 7.1 (Fire OS 6) and newer. |
+| `tools/test-sender` | PC tool that streams a test pattern to the TV app, for testing without a phone. |
+
+To check a TV without a phone, open Beamline on the TV and run:
+
+```bash
+./gradlew :test-sender:run --args="192.168.1.50"
+```
 
 ## License
 

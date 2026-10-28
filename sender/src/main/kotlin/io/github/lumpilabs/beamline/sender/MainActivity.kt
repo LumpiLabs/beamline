@@ -1,15 +1,31 @@
 package io.github.lumpilabs.beamline.sender
 
+import android.Manifest
+import android.app.Activity
+import android.content.pm.PackageManager
+import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
@@ -17,18 +33,90 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import io.github.lumpilabs.beamline.protocol.Protocol
+import io.github.lumpilabs.beamline.protocol.VideoSize
 
 class MainActivity : ComponentActivity() {
+  private lateinit var discovery: ReceiverDiscovery
+  private var pendingTarget: ReceiverAddress? = null
+
+  private val requestPermissions =
+    registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { startDiscoveryIfAllowed() }
+
+  private val requestCapture =
+    registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+      val target = pendingTarget
+      val data = result.data
+      pendingTarget = null
+      if (result.resultCode == Activity.RESULT_OK && data != null && target != null) {
+        MirrorService.start(this, result.resultCode, data, target)
+      }
+    }
+
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     enableEdgeToEdge()
-    setContent { BeamlineTheme { SenderScreen() } }
+    discovery = ReceiverDiscovery(applicationContext)
+    setContent {
+      BeamlineTheme {
+        val status by MirrorState.status.collectAsState()
+        val receivers by discovery.receivers.collectAsState()
+        SenderScreen(
+          status = status,
+          receivers = receivers,
+          localNetworkAllowed = hasLocalNetworkAccess(),
+          onConnect = ::startMirroring,
+          onStop = { MirrorService.stop(this) },
+        )
+      }
+    }
+  }
+
+  override fun onStart() {
+    super.onStart()
+    val missing = buildList {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
+      if (Build.VERSION.SDK_INT >= ANDROID_17) add(Manifest.permission.ACCESS_LOCAL_NETWORK)
+    }.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
+    if (missing.isEmpty()) startDiscoveryIfAllowed() else requestPermissions.launch(missing.toTypedArray())
+  }
+
+  override fun onStop() {
+    discovery.stop()
+    super.onStop()
+  }
+
+  private fun startDiscoveryIfAllowed() {
+    if (hasLocalNetworkAccess()) discovery.start()
+  }
+
+  private fun startMirroring(target: ReceiverAddress) {
+    pendingTarget = target
+    val projectionManager = getSystemService(MediaProjectionManager::class.java)
+    requestCapture.launch(projectionManager.createScreenCaptureIntent())
+  }
+
+  private fun hasLocalNetworkAccess(): Boolean =
+    Build.VERSION.SDK_INT < ANDROID_17 ||
+      ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_LOCAL_NETWORK) ==
+      PackageManager.PERMISSION_GRANTED
+
+  private companion object {
+    /** Android 17 (API 37) gates local network access behind a runtime permission. */
+    const val ANDROID_17 = 37
   }
 }
 
@@ -47,24 +135,114 @@ fun BeamlineTheme(content: @Composable () -> Unit) {
 }
 
 @Composable
-fun SenderScreen() {
+fun SenderScreen(
+  status: MirrorStatus,
+  receivers: List<ReceiverAddress>,
+  localNetworkAllowed: Boolean,
+  onConnect: (ReceiverAddress) -> Unit,
+  onStop: () -> Unit,
+) {
   Scaffold { padding ->
-    Column(
-      modifier = Modifier.padding(padding).padding(24.dp),
+    LazyColumn(
+      modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
       verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-      Text(stringResource(R.string.app_name), style = MaterialTheme.typography.headlineLarge)
-      Text(stringResource(R.string.sender_status_placeholder), style = MaterialTheme.typography.bodyLarge)
-      Text(
-        stringResource(R.string.protocol_version, Protocol.VERSION),
-        style = MaterialTheme.typography.bodySmall,
-      )
+      item {
+        Text(
+          stringResource(R.string.app_name),
+          style = MaterialTheme.typography.headlineLarge,
+          modifier = Modifier.padding(top = 24.dp),
+        )
+      }
+      item { StatusCard(status, onStop) }
+      if (!localNetworkAllowed) {
+        item { Text(stringResource(R.string.local_network_needed), style = MaterialTheme.typography.bodyMedium) }
+      }
+      item { Text(stringResource(R.string.tvs_on_network), style = MaterialTheme.typography.titleMedium) }
+      if (receivers.isEmpty()) {
+        item { Text(stringResource(R.string.searching), style = MaterialTheme.typography.bodyMedium) }
+      }
+      items(receivers, key = { "${it.host}:${it.port}" }) { receiver ->
+        ListItem(
+          headlineContent = { Text(receiver.name) },
+          supportingContent = { Text(receiver.host) },
+          modifier = Modifier.clickable { onConnect(receiver) },
+        )
+      }
+      item { ManualAddress(onConnect) }
+      item {
+        Text(
+          stringResource(R.string.protocol_version, Protocol.VERSION),
+          style = MaterialTheme.typography.bodySmall,
+          modifier = Modifier.padding(bottom = 24.dp),
+        )
+      }
     }
   }
+}
+
+@Composable
+private fun StatusCard(status: MirrorStatus, onStop: () -> Unit) {
+  Card(Modifier.fillMaxWidth()) {
+    Row(
+      modifier = Modifier.padding(16.dp).fillMaxWidth(),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+      val text = when (status) {
+        MirrorStatus.Idle -> stringResource(R.string.status_idle)
+        is MirrorStatus.Connecting -> stringResource(R.string.status_connecting, status.receiver)
+        is MirrorStatus.Mirroring ->
+          stringResource(R.string.status_mirroring, status.receiver, status.size.width, status.size.height)
+        is MirrorStatus.Failed -> stringResource(R.string.status_failed, status.message)
+      }
+      Text(text, modifier = Modifier.weight(1f))
+      if (status is MirrorStatus.Connecting || status is MirrorStatus.Mirroring) {
+        OutlinedButton(onClick = onStop) { Text(stringResource(R.string.stop)) }
+      }
+    }
+  }
+}
+
+@Composable
+private fun ManualAddress(onConnect: (ReceiverAddress) -> Unit) {
+  var address by remember { mutableStateOf("") }
+  Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Text(stringResource(R.string.manual_title), style = MaterialTheme.typography.titleMedium)
+    OutlinedTextField(
+      value = address,
+      onValueChange = { address = it.trim() },
+      label = { Text(stringResource(R.string.manual_hint)) },
+      singleLine = true,
+      keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+      modifier = Modifier.fillMaxWidth(),
+    )
+    Button(
+      onClick = { parseAddress(address)?.let(onConnect) },
+      enabled = parseAddress(address) != null,
+    ) { Text(stringResource(R.string.connect)) }
+  }
+}
+
+/** Accepts `host` or `host:port`. */
+internal fun parseAddress(text: String): ReceiverAddress? {
+  if (text.isBlank()) return null
+  val host = text.substringBeforeLast(':', text)
+  val port = if (host == text) Protocol.DEFAULT_PORT else text.substringAfterLast(':').toIntOrNull() ?: return null
+  if (host.isBlank() || port !in 1..65535) return null
+  return ReceiverAddress(host, host, port)
 }
 
 @Preview
 @Composable
 private fun SenderScreenPreview() {
-  BeamlineTheme { SenderScreen() }
+  BeamlineTheme {
+    SenderScreen(
+      status = MirrorStatus.Mirroring("Fire TV Stick 4K Max", VideoSize(480, 1072)),
+      receivers = listOf(ReceiverAddress("Fire TV Stick 4K Max", "192.168.1.50", Protocol.DEFAULT_PORT)),
+      localNetworkAllowed = true,
+      onConnect = {},
+      onStop = {},
+    )
+  }
 }
