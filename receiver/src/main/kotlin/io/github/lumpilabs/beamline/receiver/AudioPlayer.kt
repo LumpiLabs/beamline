@@ -22,8 +22,8 @@ import kotlin.math.max
 
 /**
  * Decodes the sender's Opus audio and plays it. Playback starts once [START_BUFFER_MS] is queued,
- * which absorbs Wi-Fi jitter; when more than [MAX_BUFFERED_MS] piles up (a burst, or the two
- * devices' clocks drifting apart), decoded audio is dropped to keep the delay low.
+ * which absorbs Wi-Fi bursts; when more than [MAX_BUFFERED_MS] piles up (the two devices' clocks
+ * drifting apart over a long session), a chunk is dropped to keep the delay bounded.
  *
  * Android's mixer disables a track that runs dry for a while, for example before the phone plays
  * anything. A track whose position stops moving is therefore restarted automatically.
@@ -234,9 +234,10 @@ class AudioPlayer(private val config: AudioConfig) {
 
   private companion object {
     const val TAG = "BeamlineAudio"
-    const val START_BUFFER_MS = 80
-    const val MAX_BUFFERED_MS = 250
-    const val TRACK_BUFFER_MS = 500
+    /** Smooth playback matters more than low delay: about a quarter second of cushion. */
+    const val START_BUFFER_MS = 250
+    const val MAX_BUFFERED_MS = 500
+    const val TRACK_BUFFER_MS = 800
     const val MAX_SEGMENTS = 200
     const val INPUT_TIMEOUT_US = 10_000L
     const val STALL_NS = 300_000_000L

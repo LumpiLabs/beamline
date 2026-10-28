@@ -106,8 +106,11 @@ class ScreenEncoder(size: VideoSize, fps: Int, bitrate: Int, private val sink: S
     private const val DRAIN_TIMEOUT_US = 100_000L
     private const val REPEAT_AFTER_US = 100_000L
 
-    /** About 0.1 bit per pixel per frame, which keeps text sharp, within 2 to 16 Mbit/s. */
+    /**
+     * About 1/16 bit per pixel per frame within 2 to 12 Mbit/s: about 9 Mbit/s for a landscape
+     * phone at 2336x1072, sharp for video and text without overloading a busy Wi-Fi.
+     */
     fun bitrateFor(size: VideoSize, fps: Int): Int =
-      (size.width.toLong() * size.height * fps / 10).toInt().coerceIn(2_000_000, 16_000_000)
+      (size.width.toLong() * size.height * fps / 16).toInt().coerceIn(2_000_000, 12_000_000)
   }
 }

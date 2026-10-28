@@ -26,17 +26,17 @@ import kotlin.system.exitProcess
 /**
  * Streams a test pattern to a Beamline TV, for testing the TV app without a phone.
  *
- * Usage: `test-sender <host> [port] [seconds]`
+ * Usage: `test-sender <host> [port] [seconds] [fps]`
  */
 fun main(args: Array<String>) {
   val host = args.getOrNull(0) ?: run {
-    System.err.println("Usage: test-sender <host> [port] [seconds]")
+    System.err.println("Usage: test-sender <host> [port] [seconds] [fps]")
     exitProcess(2)
   }
   val port = args.getOrNull(1)?.toInt() ?: Protocol.DEFAULT_PORT
   val seconds = args.getOrNull(2)?.toInt() ?: 20
+  val fps = args.getOrNull(3)?.toInt() ?: 30
   val size = VideoSize(1280, 720)
-  val fps = 30
 
   print("Encoding test pattern... ")
   val clip = TestPattern.encode(size, fps, frameCount = fps * 2)

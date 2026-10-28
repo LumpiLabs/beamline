@@ -4,6 +4,8 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.util.Log
+import android.view.KeyEvent
 import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
@@ -12,15 +14,20 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -34,6 +41,8 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import androidx.tv.material3.darkColorScheme
 import io.github.lumpilabs.beamline.protocol.Protocol
+import kotlin.math.abs
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
   private lateinit var controller: ReceiverController
@@ -50,9 +59,43 @@ class MainActivity : ComponentActivity() {
     setContent {
       MaterialTheme(colorScheme = darkColorScheme()) {
         val state by controller.state.collectAsState()
-        ReceiverScreen(state, tvName, onSurface = { controller.surface = it })
+        val fill by controller.fill.collectAsState()
+        val refreshRate by controller.refreshRate.collectAsState()
+        LaunchedEffect(refreshRate) { applyRefreshRate(refreshRate) }
+        ReceiverScreen(state, tvName, fill, onSurface = { controller.surface = it })
       }
     }
+  }
+
+  /** OK on the remote switches between filling the screen and showing the whole picture. */
+  override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+    val streaming = (controller.state.value as? ReceiverState.Connected)?.video != null
+    if (streaming && keyCode in OK_KEYS) {
+      controller.toggleFill()
+      return true
+    }
+    return super.onKeyDown(keyCode, event)
+  }
+
+  /**
+   * Asks the TV for a refresh rate that shows the content evenly, for example 50 Hz for 25 fps
+   * video, at the current resolution. Null returns to the TV's default.
+   */
+  private fun applyRefreshRate(hz: Float?) {
+    val display = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) display else null
+    @Suppress("DEPRECATION") // Activity.getDisplay needs Android 11; Fire OS 7 is Android 9.
+    val screen = display ?: windowManager.defaultDisplay ?: return
+    val current = screen.mode
+    val modeId = hz?.let { target ->
+      screen.supportedModes
+        .filter { it.physicalWidth == current.physicalWidth && it.physicalHeight == current.physicalHeight }
+        .minByOrNull { abs(it.refreshRate - target) }
+        ?.takeIf { abs(it.refreshRate - target) < 0.5f }
+        ?.modeId
+    } ?: 0
+    if (window.attributes.preferredDisplayModeId == modeId) return
+    window.attributes = window.attributes.apply { preferredDisplayModeId = modeId }
+    Log.i(TAG, "Display mode $modeId for ${hz ?: "default"} Hz")
   }
 
   override fun onStart() {
@@ -74,8 +117,17 @@ class MainActivity : ComponentActivity() {
       ContextCompat.checkSelfPermission(this, LOCAL_NETWORK_PERMISSION) == PackageManager.PERMISSION_GRANTED
 
   private companion object {
+    const val TAG = "BeamlineTv"
+
     /** Android 17 (API 37) gates local network access behind a runtime permission. */
     const val ANDROID_17 = 37
+
+    val OK_KEYS = setOf(
+      KeyEvent.KEYCODE_DPAD_CENTER,
+      KeyEvent.KEYCODE_ENTER,
+      KeyEvent.KEYCODE_NUMPAD_ENTER,
+      KeyEvent.KEYCODE_BUTTON_A,
+    )
 
     /** Manifest.permission.ACCESS_LOCAL_NETWORK, spelled out because the constant is API 37. */
     const val LOCAL_NETWORK_PERMISSION = "android.permission.ACCESS_LOCAL_NETWORK"
@@ -83,18 +135,54 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun ReceiverScreen(state: ReceiverState, tvName: String, onSurface: (Surface?) -> Unit) {
-  val streaming = state is ReceiverState.Connected && state.video != null
+fun ReceiverScreen(state: ReceiverState, tvName: String, fill: Boolean, onSurface: (Surface?) -> Unit) {
+  val video = (state as? ReceiverState.Connected)?.video
+  val streaming = video != null
   val view = LocalView.current
   SideEffect { view.keepScreenOn = state is ReceiverState.Connected }
 
-  Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
-    val video = (state as? ReceiverState.Connected)?.video
+  BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
     val aspect = if (video != null) video.width.toFloat() / video.height else 16f / 9f
-    VideoSurface(Modifier.aspectRatio(aspect), onSurface)
-    if (!streaming) StatusScreen(state, tvName)
+    val screenAspect = maxWidth / maxHeight
+    // Filling only makes sense for landscape pictures; a portrait phone would lose most of its screen.
+    val cover = fill && aspect >= MIN_FILL_ASPECT
+    val wider = aspect > screenAspect
+    val (width, height) = when {
+      cover == wider -> maxHeight * aspect to maxHeight
+      else -> maxWidth to maxWidth / aspect
+    }
+    VideoSurface(Modifier.requiredSize(width, height), onSurface)
+    if (!streaming) {
+      StatusScreen(state, tvName)
+    } else if (aspect >= MIN_FILL_ASPECT) {
+      ZoomHint(fill, Modifier.align(Alignment.BottomCenter))
+    }
   }
 }
+
+/** Shows for a few seconds when the picture starts and after each OK press. */
+@Composable
+private fun ZoomHint(fill: Boolean, modifier: Modifier) {
+  var visible by remember { mutableStateOf(true) }
+  LaunchedEffect(fill) {
+    visible = true
+    delay(HINT_MS)
+    visible = false
+  }
+  if (!visible) return
+  Text(
+    stringResource(if (fill) R.string.hint_fill else R.string.hint_fit),
+    style = MaterialTheme.typography.bodyLarge,
+    color = Color.White,
+    modifier = modifier
+      .padding(bottom = 48.dp)
+      .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+      .padding(horizontal = 20.dp, vertical = 10.dp),
+  )
+}
+
+private const val MIN_FILL_ASPECT = 1.3f
+private const val HINT_MS = 4_000L
 
 @Composable
 private fun VideoSurface(modifier: Modifier, onSurface: (Surface?) -> Unit) {

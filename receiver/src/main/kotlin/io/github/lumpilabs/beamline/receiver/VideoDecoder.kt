@@ -14,9 +14,14 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 /**
- * Hardware video decoder that renders straight to [surface]. Frames are rendered as soon as they
- * are decoded; if the decoder falls behind, queued frames are dropped and [Listener.onNeedKeyframe]
- * asks the sender for a fresh keyframe.
+ * Hardware video decoder that renders straight to [surface] at the times [clock] schedules.
+ *
+ * Frames wait here still encoded, in a jitter buffer of a few hundred milliseconds, and go into
+ * the decoder [DECODE_LEAD_NS] before they're due. Waiting before decoding matters: a decoder has
+ * only a handful of output buffers, so holding decoded frames that long would stall it.
+ *
+ * If the buffer overflows (the network delivered far more than can be shown), queued frames are
+ * dropped and [Listener.onNeedKeyframe] asks the sender for a fresh keyframe.
  *
  * All MediaCodec calls happen on one handler thread.
  */
@@ -38,7 +43,9 @@ class VideoDecoder(
   private val handler = Handler(thread.looper)
   private val codec: MediaCodec
   private val freeInputs = ArrayDeque<Int>()
-  private val pending = ArrayDeque<Frame>()
+  private val pending = ArrayDeque<Pending>()
+  private val renderTimes = LinkedHashMap<Long, Long>()
+  private val feedLater = Runnable { feed() }
   private var waitingForKeyframe = true
   private var released = false
 
@@ -74,6 +81,7 @@ class VideoDecoder(
     val done = CountDownLatch(1)
     val posted = handler.post {
       released = true
+      handler.removeCallbacks(feedLater)
       runCatching { codec.stop() }
       runCatching { codec.release() }
       done.countDown()
@@ -90,23 +98,35 @@ class VideoDecoder(
     if (isKeyframe) waitingForKeyframe = false
 
     if (pending.size >= MAX_PENDING && !isConfig) {
-      // Behind by more than a few frames: catch up instead of adding latency.
-      pending.removeAll { !it.hasFlag(FrameFlags.CODEC_CONFIG) }
+      // Far more queued than any sensible buffer: start over from the next keyframe.
+      pending.removeAll { !it.frame.hasFlag(FrameFlags.CODEC_CONFIG) }
       if (!isKeyframe) {
         waitingForKeyframe = true
         listener.onNeedKeyframe()
         return
       }
     }
-    pending.addLast(frame)
+    val renderAt = if (isConfig) null else clock.schedule(frame.ptsUs)
+    pending.addLast(Pending(frame, renderAt))
     feed()
   }
 
+  /** Moves due frames into the decoder and wakes up again when the next one is due. */
   private fun feed() {
+    if (released) return
+    handler.removeCallbacks(feedLater)
+    val now = System.nanoTime()
     while (freeInputs.isNotEmpty() && pending.isNotEmpty()) {
+      val next = pending.first()
+      val dueAt = next.renderAt?.minus(DECODE_LEAD_NS)
+      if (dueAt != null && dueAt > now) {
+        handler.postDelayed(feedLater, (dueAt - now) / 1_000_000 + 1)
+        return
+      }
+      pending.removeFirst()
       val index = freeInputs.removeFirst()
-      val frame = pending.removeFirst()
       val buffer = codec.getInputBuffer(index) ?: continue
+      val frame = next.frame
       if (frame.body.size > buffer.capacity()) {
         freeInputs.addFirst(index)
         waitingForKeyframe = true
@@ -118,8 +138,14 @@ class VideoDecoder(
       var flags = 0
       if (frame.hasFlag(FrameFlags.CODEC_CONFIG)) flags = flags or MediaCodec.BUFFER_FLAG_CODEC_CONFIG
       if (frame.hasFlag(FrameFlags.KEYFRAME)) flags = flags or MediaCodec.BUFFER_FLAG_KEY_FRAME
+      next.renderAt?.let { rememberRenderTime(frame.ptsUs, it) }
       codec.queueInputBuffer(index, 0, frame.body.size, frame.ptsUs, flags)
     }
+  }
+
+  private fun rememberRenderTime(ptsUs: Long, renderAt: Long) {
+    renderTimes[ptsUs] = renderAt
+    if (renderTimes.size > MAX_RENDER_TIMES) renderTimes.remove(renderTimes.keys.first())
   }
 
   private inner class Callback : MediaCodec.Callback() {
@@ -132,12 +158,11 @@ class VideoDecoder(
     override fun onOutputBufferAvailable(codec: MediaCodec, index: Int, info: MediaCodec.BufferInfo) {
       if (released) return
       val now = System.nanoTime()
-      val target = clock.renderTimeNs(info.presentationTimeUs)
+      val target = renderTimes.remove(info.presentationTimeUs)
       val showAt = if (target == null || target <= now + ON_TIME_NS) {
         codec.releaseOutputBuffer(index, true)
         now
       } else {
-        // Never hold a frame long: the decoder has only a few output buffers.
         minOf(target, now + MAX_HOLD_NS).also { codec.releaseOutputBuffer(index, it) }
       }
       val offset = showAt - info.presentationTimeUs * 1000
@@ -152,15 +177,23 @@ class VideoDecoder(
     override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) = Unit
   }
 
+  private class Pending(val frame: Frame, val renderAt: Long?)
+
   private companion object {
     const val MAX_INPUT_SIZE = 4 * 1024 * 1024
 
-    /** About 260 ms at 60 fps; frames now wait for their time, so allow a deeper queue. */
-    const val MAX_PENDING = 16
+    /** About two seconds at 60 fps; a normal buffer holds a few hundred milliseconds. */
+    const val MAX_PENDING = 120
+
+    /** How long before its time a frame goes into the decoder; decoding takes 10 to 30 ms. */
+    const val DECODE_LEAD_NS = 60_000_000L
 
     /** Frames due within this are shown at once. */
     const val ON_TIME_NS = 4_000_000L
 
-    const val MAX_HOLD_NS = 150_000_000L
+    /** Never hold a decoded frame longer than this: the decoder has only a few output buffers. */
+    const val MAX_HOLD_NS = 100_000_000L
+
+    const val MAX_RENDER_TIMES = 256
   }
 }

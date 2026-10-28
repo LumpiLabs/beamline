@@ -10,6 +10,7 @@ import io.github.lumpilabs.beamline.protocol.Control
 import io.github.lumpilabs.beamline.protocol.ControlCodec
 import io.github.lumpilabs.beamline.protocol.Frame
 import io.github.lumpilabs.beamline.protocol.FrameFlags
+import io.github.lumpilabs.beamline.protocol.FrameRateDetector
 import io.github.lumpilabs.beamline.protocol.FrameReader
 import io.github.lumpilabs.beamline.protocol.FrameType
 import io.github.lumpilabs.beamline.protocol.FrameWriter
@@ -43,6 +44,9 @@ class MirrorServer(
     fun onConnected(senderName: String)
 
     fun onVideoSize(size: VideoSize)
+
+    /** About once a second while streaming: the content's steady frame rate, if any. */
+    fun onContentFrameRate(rate: FrameRateDetector.StandardRate?)
 
     fun onDisconnected(reason: String?)
   }
@@ -163,6 +167,7 @@ class MirrorServer(
         is AudioConfig -> startAudio(message)
         is Ping -> {
           send(Pong(message.id, message.timeUs, SystemClock.elapsedRealtimeNanos() / 1000))
+          events.onContentFrameRate(clock.steadyFrameRate())
           if (message.id % 5 == 0) logSync()
         }
         is Bye -> return false
@@ -185,10 +190,11 @@ class MirrorServer(
     private fun logSync() {
       val shown = decoder?.renderOffsetNs ?: return
       val audible = audio?.audibleOffsetNs
+      val rate = clock.steadyFrameRate()?.name ?: "varying"
       if (audible == null) {
-        Log.i(TAG, "Video paced without sound")
+        Log.i(TAG, "Video paced without sound, content $rate")
       } else {
-        Log.i(TAG, "A/V skew ${(audible - shown) / 1_000_000} ms")
+        Log.i(TAG, "A/V skew ${(audible - shown) / 1_000_000} ms, content $rate")
       }
     }
 
@@ -247,6 +253,8 @@ class MirrorServer(
     const val HANDSHAKE_TIMEOUT_MS = 5_000
     const val STREAM_TIMEOUT_MS = 10_000
     const val MAX_FPS = 60
-    val MAX_SIZE = VideoSize(1920, 1080)
+
+    /** Full HD height; wider than 16:9 so a 20:9 phone in landscape keeps full detail when filled. */
+    val MAX_SIZE = VideoSize(2560, 1080)
   }
 }

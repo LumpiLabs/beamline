@@ -3,6 +3,7 @@ package io.github.lumpilabs.beamline.receiver
 import android.content.Context
 import android.net.ConnectivityManager
 import android.view.Surface
+import io.github.lumpilabs.beamline.protocol.FrameRateDetector.StandardRate
 import io.github.lumpilabs.beamline.protocol.VideoSize
 import java.io.IOException
 import java.net.Inet4Address
@@ -23,10 +24,20 @@ class ReceiverController(private val context: Context, private val tvName: Strin
   private val _state = MutableStateFlow<ReceiverState>(ReceiverState.Idle(null))
   val state: StateFlow<ReceiverState> = _state
 
+  /** Fill the screen (crop a wider picture) instead of showing all of it with black bars. */
+  private val _fill = MutableStateFlow(true)
+  val fill: StateFlow<Boolean> = _fill
+
+  /** Display refresh rate that shows the content evenly, or null for the TV's default. */
+  private val _refreshRate = MutableStateFlow<Float?>(null)
+  val refreshRate: StateFlow<Float?> = _refreshRate
+
   @Volatile var surface: Surface? = null
 
   private val advertiser = ServiceAdvertiser(context)
   private var server: MirrorServer? = null
+  private var candidateHz: Float? = null
+  private var candidateReports = 0
 
   fun start() {
     if (server != null) return
@@ -52,6 +63,10 @@ class ReceiverController(private val context: Context, private val tvName: Strin
     _state.value = ReceiverState.Failed(message)
   }
 
+  fun toggleFill() {
+    _fill.update { !it }
+  }
+
   override fun onConnected(senderName: String) {
     _state.value = ReceiverState.Connected(senderName)
   }
@@ -60,7 +75,29 @@ class ReceiverController(private val context: Context, private val tvName: Strin
     _state.update { if (it is ReceiverState.Connected) it.copy(video = size) else it }
   }
 
+  /**
+   * Called about once a second. Switching the refresh rate blanks the TV for a moment, so it only
+   * happens after the same rate was seen several times in a row, and switching back to the default
+   * takes even longer: player controls briefly showing over a 25 fps video shouldn't trigger it.
+   */
+  override fun onContentFrameRate(rate: StandardRate?) {
+    val hz = rate?.displayHz ?: return
+    if (hz == candidateHz) {
+      candidateReports++
+    } else {
+      candidateHz = hz
+      candidateReports = 1
+    }
+    // 60 Hz is the TV's default; only 24, 25 and 50 fps content needs a different rate.
+    val wanted = hz.takeIf { it != DEFAULT_HZ }
+    val needed = if (wanted == null) SWITCH_BACK_AFTER_REPORTS else SWITCH_AFTER_REPORTS
+    if (candidateReports >= needed && _refreshRate.value != wanted) _refreshRate.value = wanted
+  }
+
   override fun onDisconnected(reason: String?) {
+    candidateHz = null
+    candidateReports = 0
+    _refreshRate.value = null
     _state.value = ReceiverState.Idle(localAddress(), reason)
   }
 
@@ -71,5 +108,11 @@ class ReceiverController(private val context: Context, private val tvName: Strin
       .map { it.address }
       .firstOrNull { it is Inet4Address && !it.isLoopbackAddress }
       ?.hostAddress
+  }
+
+  private companion object {
+    const val SWITCH_AFTER_REPORTS = 4
+    const val SWITCH_BACK_AFTER_REPORTS = 15
+    const val DEFAULT_HZ = 60f
   }
 }
