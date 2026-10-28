@@ -25,6 +25,11 @@ import kotlin.math.max
  * which absorbs Wi-Fi bursts; when more than [MAX_BUFFERED_MS] piles up (the two devices' clocks
  * drifting apart over a long session), a chunk is dropped to keep the delay bounded.
  *
+ * Before Android 12, a started or flushed track only plays once its whole buffer is full. While
+ * filling, the track's usable size is therefore shrunk to the start cushion, and grown back once
+ * the mixer takes the track so bursts still fit. Decoded audio that doesn't fit yet waits in
+ * [pending].
+ *
  * Android's mixer disables a track that runs dry for a while, for example before the phone plays
  * anything. A track whose position stops moving is therefore restarted automatically.
  *
@@ -39,6 +44,10 @@ class AudioPlayer(private val config: AudioConfig) {
   private var codec: MediaCodec? = null
   private var released = false
   private var playing = false
+  private var startFrames = 0
+  private var expanded = false
+  private val pending = ArrayDeque<Pcm>()
+  private var pendingFrames = 0L
   private var framesWritten = 0L
   private var headBase = 0L
   private var lastHead = 0L
@@ -78,6 +87,7 @@ class AudioPlayer(private val config: AudioConfig) {
       .setBufferSizeInBytes(max(minBuffer, framesFor(TRACK_BUFFER_MS) * bytesPerFrame))
       .setTransferMode(AudioTrack.MODE_STREAM)
       .build()
+    shrinkForStart()
   }
 
   fun submit(frame: Frame) {
@@ -154,24 +164,45 @@ class AudioPlayer(private val config: AudioConfig) {
   private fun play(pcm: ByteArray, ptsUs: Long) {
     peakDbfs = max(peakDbfs, AudioLevel.peakDbfs(pcm))
     if (playing) restartIfStalled()
-    if (playing && bufferedFrames() > framesFor(MAX_BUFFERED_MS)) {
+    if (bufferedFrames() + pendingFrames > framesFor(MAX_BUFFERED_MS)) {
       droppedChunks++
     } else {
-      val written = track.write(pcm, 0, pcm.size, AudioTrack.WRITE_NON_BLOCKING)
-      if (written > 0) {
-        segments.addLast(Segment(framesWritten, ptsUs))
-        while (segments.size > MAX_SEGMENTS) segments.removeFirst()
-        framesWritten += written / bytesPerFrame
-      }
-      if (!playing && framesWritten >= framesFor(START_BUFFER_MS)) {
-        track.play()
-        playing = true
-        lastHead = headPosition()
-        lastHeadChangeNs = System.nanoTime()
-      }
+      pending.addLast(Pcm(pcm, ptsUs))
+      pendingFrames += pcm.size / bytesPerFrame
+    }
+    writePending()
+    if (!playing && framesWritten >= startFrames) {
+      track.play()
+      playing = true
+      lastHead = headPosition()
+      lastHeadChangeNs = System.nanoTime()
     }
     updateClock()
     report()
+  }
+
+  /** Moves decoded audio into the track as far as it has room. */
+  private fun writePending() {
+    while (true) {
+      val chunk = pending.firstOrNull() ?: return
+      val written = track.write(chunk.data, chunk.offset, chunk.data.size - chunk.offset, AudioTrack.WRITE_NON_BLOCKING)
+      if (written <= 0) return
+      val offsetUs = (chunk.offset / bytesPerFrame).toLong() * 1_000_000 / config.sampleRate
+      segments.addLast(Segment(framesWritten, chunk.ptsUs + offsetUs))
+      while (segments.size > MAX_SEGMENTS) segments.removeFirst()
+      framesWritten += written / bytesPerFrame
+      pendingFrames -= written / bytesPerFrame
+      chunk.offset += written
+      if (chunk.offset < chunk.data.size) return
+      pending.removeFirst()
+    }
+  }
+
+  /** Lets the track start as soon as the start cushion is queued instead of its whole buffer. */
+  private fun shrinkForStart() {
+    track.setBufferSizeInFrames(framesFor(START_BUFFER_MS))
+    startFrames = track.bufferSizeInFrames
+    expanded = false
   }
 
   /** Android's mixer disables a track that ran dry; a frozen position means it needs a restart. */
@@ -181,6 +212,11 @@ class AudioPlayer(private val config: AudioConfig) {
     if (head != lastHead) {
       lastHead = head
       lastHeadChangeNs = now
+      // The mixer took the track: give bursts the whole buffer again.
+      if (!expanded) {
+        track.setBufferSizeInFrames(track.bufferCapacityInFrames)
+        expanded = true
+      }
       return
     }
     if (now - lastHeadChangeNs < STALL_NS) return
@@ -194,6 +230,7 @@ class AudioPlayer(private val config: AudioConfig) {
     headBase = headPosition()
     segments.clear()
     audibleOffsetNs = null
+    shrinkForStart()
   }
 
   private fun updateClock() {
@@ -232,12 +269,16 @@ class AudioPlayer(private val config: AudioConfig) {
 
   private class Segment(val startFrame: Long, val ptsUs: Long)
 
+  private class Pcm(val data: ByteArray, val ptsUs: Long) {
+    var offset = 0
+  }
+
   private companion object {
     const val TAG = "BeamlineAudio"
-    /** Smooth playback matters more than low delay: about a quarter second of cushion. */
-    const val START_BUFFER_MS = 250
-    const val MAX_BUFFERED_MS = 500
-    const val TRACK_BUFFER_MS = 800
+    /** Smooth playback matters more than low delay: about a third of a second of cushion. */
+    const val START_BUFFER_MS = 300
+    const val MAX_BUFFERED_MS = 600
+    const val TRACK_BUFFER_MS = 1000
     const val MAX_SEGMENTS = 200
     const val INPUT_TIMEOUT_US = 10_000L
     const val STALL_NS = 300_000_000L
