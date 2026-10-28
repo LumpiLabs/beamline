@@ -20,7 +20,7 @@ class ServiceAdvertiser(context: Context) {
       this.port = port
       setAttribute(Protocol.Txt.VERSION, Protocol.VERSION.toString())
       setAttribute(Protocol.Txt.NAME, name)
-      setAttribute(Protocol.Txt.CODECS, Codecs.H264)
+      setAttribute(Protocol.Txt.CODECS, "${Codecs.H264},${Codecs.OPUS}")
       setAttribute(Protocol.Txt.RESOLUTION, "1920x1080@60")
     }
     val registration = object : NsdManager.RegistrationListener {

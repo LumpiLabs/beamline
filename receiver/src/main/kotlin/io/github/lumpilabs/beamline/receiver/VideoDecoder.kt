@@ -20,7 +20,12 @@ import java.util.concurrent.TimeUnit
  *
  * All MediaCodec calls happen on one handler thread.
  */
-class VideoDecoder(surface: Surface, config: StreamConfig, private val listener: Listener) {
+class VideoDecoder(
+  surface: Surface,
+  config: StreamConfig,
+  private val clock: PlaybackClock,
+  private val listener: Listener,
+) {
   interface Listener {
     fun onNeedKeyframe()
 
@@ -36,6 +41,10 @@ class VideoDecoder(surface: Surface, config: StreamConfig, private val listener:
   private val pending = ArrayDeque<Frame>()
   private var waitingForKeyframe = true
   private var released = false
+
+  /** Local System.nanoTime minus sender time (ns) at which frames are shown, smoothed. */
+  @Volatile var renderOffsetNs: Long? = null
+    private set
 
   init {
     val mime = when (config.codec) {
@@ -122,7 +131,17 @@ class VideoDecoder(surface: Surface, config: StreamConfig, private val listener:
 
     override fun onOutputBufferAvailable(codec: MediaCodec, index: Int, info: MediaCodec.BufferInfo) {
       if (released) return
-      codec.releaseOutputBuffer(index, true)
+      val now = System.nanoTime()
+      val target = clock.renderTimeNs(info.presentationTimeUs)
+      val showAt = if (target == null || target <= now + ON_TIME_NS) {
+        codec.releaseOutputBuffer(index, true)
+        now
+      } else {
+        // Never hold a frame long: the decoder has only a few output buffers.
+        minOf(target, now + MAX_HOLD_NS).also { codec.releaseOutputBuffer(index, it) }
+      }
+      val offset = showAt - info.presentationTimeUs * 1000
+      renderOffsetNs = renderOffsetNs?.let { it + (offset - it) / 8 } ?: offset
       listener.onFrameRendered()
     }
 
@@ -136,7 +155,12 @@ class VideoDecoder(surface: Surface, config: StreamConfig, private val listener:
   private companion object {
     const val MAX_INPUT_SIZE = 4 * 1024 * 1024
 
-    /** About 130 ms at 60 fps. */
-    const val MAX_PENDING = 8
+    /** About 260 ms at 60 fps; frames now wait for their time, so allow a deeper queue. */
+    const val MAX_PENDING = 16
+
+    /** Frames due within this are shown at once. */
+    const val ON_TIME_NS = 4_000_000L
+
+    const val MAX_HOLD_NS = 150_000_000L
   }
 }

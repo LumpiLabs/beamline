@@ -13,6 +13,7 @@
   <string name="manual_hint">For example 192.168.1.50</string>
   <string name="connect">Connect</string>
   <string name="local_network_needed">Beamline needs access to your local network to find and reach the TV. Allow it in the app settings.</string>
+  <string name="sound_needed">For sound on the TV, allow the audio permission in the app settings. Beamline only captures what apps play, never the microphone.</string>
   <string name="error_capture_denied">Screen capture wasn\'t allowed.</string>
   <string name="add_tile_explanation">Start and stop mirroring with one tap from Quick Settings, next to Smart View.</string>
   <string name="add_tile">Add to Quick Settings</string>

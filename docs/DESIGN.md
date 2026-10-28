@@ -77,8 +77,9 @@ control messages.
 
 ### Control messages
 
-CBOR maps of the form `{"type": "<name>", "value": {...}}`, with snake_case field
-names; unknown fields are ignored. Messages: `hello` (versions, device name, capabilities),
+CBOR two-element arrays of the form `["<name>", {...}]`, the body a map with snake_case
+field names; unknown fields are ignored and unknown message names are skipped, so newer
+peers can add both. Messages: `hello` (versions, device name, capabilities),
 `welcome` (chosen version and stream limits), `stream` (codec, width, height, fps,
 rotation, sent before each new video config), `request_keyframe`, `bitrate_hint`,
 `ping`/`pong` (round-trip time and clock offset), `stats`, and `bye` (with reason).

@@ -54,9 +54,13 @@ import io.github.lumpilabs.beamline.protocol.VideoSize
 class MainActivity : ComponentActivity() {
   private lateinit var discovery: ReceiverDiscovery
   private var tileAdded by mutableStateOf(false)
+  private var soundAllowed by mutableStateOf(true)
 
   private val requestPermissions =
-    registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { startDiscoveryIfAllowed() }
+    registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+      soundAllowed = hasPermission(Manifest.permission.RECORD_AUDIO)
+      startDiscoveryIfAllowed()
+    }
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
@@ -71,6 +75,7 @@ class MainActivity : ComponentActivity() {
           status = status,
           receivers = receivers,
           localNetworkAllowed = hasLocalNetworkAccess(),
+          soundAllowed = soundAllowed,
           onConnect = { startActivity(CaptureActivity.intent(this, it)) },
           onStop = { MirrorService.stop(this) },
           onAddTile = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !tileAdded) ::requestAddTile else null,
@@ -100,9 +105,11 @@ class MainActivity : ComponentActivity() {
   override fun onStart() {
     super.onStart()
     val missing = buildList {
+      add(Manifest.permission.RECORD_AUDIO)
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
       if (Build.VERSION.SDK_INT >= ANDROID_17) add(Manifest.permission.ACCESS_LOCAL_NETWORK)
-    }.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
+    }.filterNot(::hasPermission)
+    soundAllowed = hasPermission(Manifest.permission.RECORD_AUDIO)
     if (missing.isEmpty()) startDiscoveryIfAllowed() else requestPermissions.launch(missing.toTypedArray())
   }
 
@@ -116,9 +123,10 @@ class MainActivity : ComponentActivity() {
   }
 
   private fun hasLocalNetworkAccess(): Boolean =
-    Build.VERSION.SDK_INT < ANDROID_17 ||
-      ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_LOCAL_NETWORK) ==
-      PackageManager.PERMISSION_GRANTED
+    Build.VERSION.SDK_INT < ANDROID_17 || hasPermission(Manifest.permission.ACCESS_LOCAL_NETWORK)
+
+  private fun hasPermission(permission: String): Boolean =
+    ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
 
   private companion object {
     /** Android 17 (API 37) gates local network access behind a runtime permission. */
@@ -145,6 +153,7 @@ fun SenderScreen(
   status: MirrorStatus,
   receivers: List<ReceiverAddress>,
   localNetworkAllowed: Boolean,
+  soundAllowed: Boolean,
   onConnect: (ReceiverAddress) -> Unit,
   onStop: () -> Unit,
   onAddTile: (() -> Unit)?,
@@ -167,6 +176,9 @@ fun SenderScreen(
       }
       if (!localNetworkAllowed) {
         item { Text(stringResource(R.string.local_network_needed), style = MaterialTheme.typography.bodyMedium) }
+      }
+      if (!soundAllowed) {
+        item { Text(stringResource(R.string.sound_needed), style = MaterialTheme.typography.bodyMedium) }
       }
       item { Text(stringResource(R.string.tvs_on_network), style = MaterialTheme.typography.titleMedium) }
       if (receivers.isEmpty()) {
@@ -261,6 +273,7 @@ private fun SenderScreenPreview() {
       status = MirrorStatus.Mirroring("Fire TV Stick 4K Max", VideoSize(480, 1072)),
       receivers = listOf(ReceiverAddress("Fire TV Stick 4K Max", "192.168.1.50", Protocol.DEFAULT_PORT)),
       localNetworkAllowed = true,
+      soundAllowed = true,
       onConnect = {},
       onStop = {},
       onAddTile = {},

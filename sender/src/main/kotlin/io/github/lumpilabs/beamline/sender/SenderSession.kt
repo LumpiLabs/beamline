@@ -1,6 +1,8 @@
 package io.github.lumpilabs.beamline.sender
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.media.projection.MediaProjection
@@ -12,6 +14,8 @@ import android.provider.Settings
 import android.util.Log
 import android.view.Display
 import android.view.Surface
+import androidx.core.content.ContextCompat
+import io.github.lumpilabs.beamline.protocol.AudioConfig
 import io.github.lumpilabs.beamline.protocol.Bye
 import io.github.lumpilabs.beamline.protocol.Codecs
 import io.github.lumpilabs.beamline.protocol.Control
@@ -64,6 +68,7 @@ class SenderSession(
   private var encoder: ScreenEncoder? = null
   private var currentSize: VideoSize? = null
   private var capturedContentSize: VideoSize? = null
+  private var audio: AudioCapture? = null
 
   @Volatile private var lastCodecConfig: ByteArray? = null
 
@@ -87,10 +92,12 @@ class SenderSession(
   /** Ends the session. A non-null [error] is shown to the user. Safe to call from any thread. */
   fun stop(error: String?) {
     if (stopped.getAndSet(true)) return
-    MirrorState.set(appContext,if (error != null) MirrorStatus.Failed(error) else MirrorStatus.Idle)
+    MirrorState.set(appContext, if (error != null) MirrorStatus.Failed(error) else MirrorStatus.Idle)
     runCatching { writer.write(ControlCodec.toFrame(Bye(if (error != null) "error" else "stopped"))) }
     handler.post {
       displayManager.unregisterDisplayListener(displayListener)
+      audio?.stop()
+      audio = null
       encoder?.stop()
       encoder = null
       virtualDisplay?.release()
@@ -111,7 +118,7 @@ class SenderSession(
     newSocket.soTimeout = CONNECT_TIMEOUT_MS
     writer = FrameWriter(newSocket.getOutputStream())
     reader = FrameReader(newSocket.getInputStream())
-    send(Hello(listOf(Protocol.VERSION), deviceName(), listOf(Codecs.H264), emptyList()))
+    send(Hello(listOf(Protocol.VERSION), deviceName(), listOf(Codecs.H264), listOf(Codecs.OPUS)))
     welcome = when (val reply = readControlMessage()) {
       is Welcome -> reply
       is Bye -> throw IOException(if (reply.reason == "busy") "The TV is busy with another device" else reply.reason)
@@ -160,7 +167,26 @@ class SenderSession(
       null,
       handler,
     )
+    startAudio()
     handler.post(pingTask)
+  }
+
+  /** Sound is optional: without the permission, an Opus encoder or a TV that plays it, video goes on alone. */
+  private fun startAudio() {
+    if (Codecs.OPUS !in welcome.audioCodecs) return
+    if (ContextCompat.checkSelfPermission(appContext, Manifest.permission.RECORD_AUDIO) !=
+      PackageManager.PERMISSION_GRANTED
+    ) {
+      Log.i(TAG, "No audio permission, mirroring without sound")
+      return
+    }
+    try {
+      send(AudioConfig(Codecs.OPUS, AudioCapture.SAMPLE_RATE, AudioCapture.CHANNELS))
+      audio = AudioCapture(projection, audioSink)
+    } catch (e: Exception) {
+      Log.w(TAG, "Audio capture unavailable, mirroring without sound", e)
+      audio = null
+    }
   }
 
   /**
@@ -250,6 +276,28 @@ class SenderSession(
       try {
         writer.write(frame)
       } catch (e: IOException) {
+        stop(if (stopped.get()) null else "Connection to the TV lost")
+      }
+    }
+  }
+
+  private val audioSink = object : AudioCapture.Sink {
+    override fun onAudioConfig(data: ByteArray) = write(Frame(FrameType.AUDIO, FrameFlags.CODEC_CONFIG, 0, data))
+
+    override fun onAudioFrame(data: ByteArray, ptsUs: Long) = write(Frame(FrameType.AUDIO, 0, ptsUs, data))
+
+    override fun onError(error: Exception) {
+      Log.w(TAG, "Audio capture failed, continuing without sound", error)
+      handler.post {
+        audio?.stop()
+        audio = null
+      }
+    }
+
+    private fun write(frame: Frame) {
+      try {
+        writer.write(frame)
+      } catch (_: IOException) {
         stop(if (stopped.get()) null else "Connection to the TV lost")
       }
     }

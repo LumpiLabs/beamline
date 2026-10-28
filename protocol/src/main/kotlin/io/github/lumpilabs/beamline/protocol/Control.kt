@@ -7,8 +7,8 @@ import kotlinx.serialization.SerializationException
 import kotlinx.serialization.cbor.Cbor
 
 /**
- * Control messages, carried CBOR-encoded in [FrameType.CONTROL] frames as
- * `{"type": "<serial name>", "value": {...}}`.
+ * Control messages, carried CBOR-encoded in [FrameType.CONTROL] frames as a two-element array
+ * `["<serial name>", {...}]`.
  */
 @Serializable
 sealed interface Control
@@ -32,6 +32,17 @@ data class Welcome(
   @SerialName("max_width") val maxWidth: Int,
   @SerialName("max_height") val maxHeight: Int,
   @SerialName("max_fps") val maxFps: Int,
+  /** Audio codecs the receiver can play; empty for receivers without sound. */
+  @SerialName("audio_codecs") val audioCodecs: List<String> = emptyList(),
+) : Control
+
+/** Sender to receiver, before the codec config of the audio stream. */
+@Serializable
+@SerialName("audio")
+data class AudioConfig(
+  val codec: String,
+  @SerialName("sample_rate") val sampleRate: Int,
+  val channels: Int,
 ) : Control
 
 /** Sender to receiver, before the codec config of every new video stream (start, rotation). */
@@ -85,7 +96,11 @@ data class Bye(val reason: String) : Control
 
 @OptIn(ExperimentalSerializationApi::class)
 object ControlCodec {
-  private val cbor = Cbor { ignoreUnknownKeys = true }
+  private val cbor = Cbor {
+    ignoreUnknownKeys = true
+    // Definite lengths are simpler for other implementations; decoding accepts both forms.
+    useDefiniteLengthEncoding = true
+  }
 
   fun encode(message: Control): ByteArray = cbor.encodeToByteArray(Control.serializer(), message)
 

@@ -3,10 +3,13 @@ package io.github.lumpilabs.beamline.receiver
 import android.os.SystemClock
 import android.util.Log
 import android.view.Surface
+import io.github.lumpilabs.beamline.protocol.AudioConfig
 import io.github.lumpilabs.beamline.protocol.Bye
+import io.github.lumpilabs.beamline.protocol.Codecs
 import io.github.lumpilabs.beamline.protocol.Control
 import io.github.lumpilabs.beamline.protocol.ControlCodec
 import io.github.lumpilabs.beamline.protocol.Frame
+import io.github.lumpilabs.beamline.protocol.FrameFlags
 import io.github.lumpilabs.beamline.protocol.FrameReader
 import io.github.lumpilabs.beamline.protocol.FrameType
 import io.github.lumpilabs.beamline.protocol.FrameWriter
@@ -107,7 +110,9 @@ class MirrorServer(
   private inner class Session(private val socket: Socket) : VideoDecoder.Listener {
     private lateinit var writer: FrameWriter
     private var decoder: VideoDecoder? = null
+    private var audio: AudioPlayer? = null
     private var config: StreamConfig? = null
+    private val clock = PlaybackClock { audio?.audibleOffsetNs }
 
     fun run() {
       socket.tcpNoDelay = true
@@ -122,10 +127,10 @@ class MirrorServer(
         send(Bye("unsupported protocol version"))
         return
       }
-      send(Welcome(version, tvName, MAX_SIZE.width, MAX_SIZE.height, MAX_FPS))
+      send(Welcome(version, tvName, MAX_SIZE.width, MAX_SIZE.height, MAX_FPS, listOf(Codecs.OPUS)))
       events.onConnected(hello.name)
 
-      // The sender repeats frames on a static screen, so silence means the link is gone.
+      // The sender pings every second even on a still screen, so silence means the link is gone.
       socket.soTimeout = STREAM_TIMEOUT_MS
       try {
         while (true) {
@@ -136,13 +141,18 @@ class MirrorServer(
           } ?: break
           when (frame.type) {
             FrameType.CONTROL -> if (!handleControl(frame)) break
-            FrameType.VIDEO -> decoder?.submit(frame)
-            FrameType.AUDIO -> Unit // M2
+            FrameType.VIDEO -> {
+              if (!frame.hasFlag(FrameFlags.CODEC_CONFIG)) clock.onVideoArrival(frame.ptsUs)
+              decoder?.submit(frame)
+            }
+            FrameType.AUDIO -> audio?.submit(frame)
           }
         }
       } finally {
         decoder?.release()
         decoder = null
+        audio?.release()
+        audio = null
       }
     }
 
@@ -150,11 +160,36 @@ class MirrorServer(
     private fun handleControl(frame: Frame): Boolean {
       when (val message = controlOrNull(frame)) {
         is StreamConfig -> startDecoder(message)
-        is Ping -> send(Pong(message.id, message.timeUs, SystemClock.elapsedRealtimeNanos() / 1000))
+        is AudioConfig -> startAudio(message)
+        is Ping -> {
+          send(Pong(message.id, message.timeUs, SystemClock.elapsedRealtimeNanos() / 1000))
+          if (message.id % 5 == 0) logSync()
+        }
         is Bye -> return false
         else -> Unit
       }
       return true
+    }
+
+    private fun startAudio(audioConfig: AudioConfig) {
+      audio?.release()
+      audio = try {
+        AudioPlayer(audioConfig)
+      } catch (e: Exception) {
+        Log.w(TAG, "Can't play this audio, continuing without sound", e)
+        null
+      }
+    }
+
+    /** Positive skew: sound is heard later than the matching picture is shown. */
+    private fun logSync() {
+      val shown = decoder?.renderOffsetNs ?: return
+      val audible = audio?.audibleOffsetNs
+      if (audible == null) {
+        Log.i(TAG, "Video paced without sound")
+      } else {
+        Log.i(TAG, "A/V skew ${(audible - shown) / 1_000_000} ms")
+      }
     }
 
     private fun startDecoder(newConfig: StreamConfig) {
@@ -162,7 +197,7 @@ class MirrorServer(
       decoder = null
       config = newConfig
       val surface = awaitSurface() ?: throw IOException("The TV screen isn't ready")
-      decoder = VideoDecoder(surface, newConfig, this)
+      decoder = VideoDecoder(surface, newConfig, clock, this)
       events.onVideoSize(VideoSize(newConfig.width, newConfig.height))
     }
 
