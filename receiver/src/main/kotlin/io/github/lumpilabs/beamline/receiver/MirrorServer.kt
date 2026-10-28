@@ -338,8 +338,6 @@ class MirrorServer(
       runCatching { send(RequestKeyframe) }
     }
 
-    override fun onFrameRendered() = Unit
-
     override fun onDecoderError(error: Exception) {
       Log.w(TAG, "Decoder error, restarting", error)
       thread(name = "beamline-decoder-restart", isDaemon = true) {

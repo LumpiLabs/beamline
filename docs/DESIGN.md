@@ -206,6 +206,9 @@ paired phones or to ask every time.
   ends a session after 10 seconds without data. A phone that comes back sooner (same
   `sender_id`) replaces its old connection right away instead of being turned away as
   busy, and the last picture stays on screen until the new one arrives.
+- **Wi-Fi:** while a phone is connected, the TV holds a Wi-Fi lock (low-latency mode
+  from Android 10, high-performance mode before), so its Wi-Fi stays out of power
+  saving, where the access point holds frames back and delivers them in bunches.
 - **AirPlay (M4):** UxPlay's server runs alongside the Beamline receiver and renders
   into the same player screen, so an iPad and an Android phone use the same TV app.
 

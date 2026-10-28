@@ -48,6 +48,31 @@ class FrameTest {
   }
 
   @Test
+  fun sendsOnlyTheUsedPartOfAReusedBuffer() {
+    val buffer = ByteArray(1_000) { 7 }
+    val bytes = ByteArrayOutputStream()
+    val writer = FrameWriter(bytes)
+    buffer.fill(1, 0, 300)
+    writer.write(FrameType.VIDEO, FrameFlags.KEYFRAME, 40_000, buffer, 300)
+    buffer.fill(2, 0, 120)
+    writer.write(FrameType.VIDEO, 0, 80_000, buffer, 120)
+
+    val reader = FrameReader(ByteArrayInputStream(bytes.toByteArray()))
+    assertContentEquals(ByteArray(300) { 1 }, reader.read()!!.body)
+    val second = reader.read()!!
+    assertEquals(80_000, second.ptsUs)
+    assertContentEquals(ByteArray(120) { 2 }, second.body)
+    assertNull(reader.read())
+  }
+
+  @Test
+  fun refusesALengthBeyondTheBuffer() {
+    assertFailsWith<IllegalArgumentException> {
+      FrameWriter(ByteArrayOutputStream()).write(FrameType.VIDEO, 0, 0, ByteArray(10), 11)
+    }
+  }
+
+  @Test
   fun flagsAreReadable() {
     val frame = Frame(FrameType.VIDEO, FrameFlags.KEYFRAME or FrameFlags.CODEC_CONFIG, 0, ByteArray(0))
     assertTrue(frame.hasFlag(FrameFlags.KEYFRAME))

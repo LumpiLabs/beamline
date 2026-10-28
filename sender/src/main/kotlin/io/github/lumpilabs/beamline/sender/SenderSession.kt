@@ -417,11 +417,16 @@ class SenderSession(
 
   private fun send(message: Control) = write(ControlCodec.toFrame(message))
 
-  /** Sends to the current connection. Without one (while reconnecting) the frame is dropped. */
-  private fun write(frame: Frame) {
+  private fun write(frame: Frame) = write(frame.type, frame.flags, frame.ptsUs, frame.body, frame.body.size)
+
+  /**
+   * Sends the first [length] bytes of [body] as one frame to the current connection. Without one
+   * (while reconnecting) the frame is dropped.
+   */
+  private fun write(type: FrameType, flags: Int, ptsUs: Long, body: ByteArray, length: Int) {
     val current = link.get() ?: return
     try {
-      current.writer.write(frame)
+      current.writer.write(type, flags, ptsUs, body, length)
     } catch (_: IOException) {
       // Closing wakes the link thread, which reconnects.
       link.compareAndSet(current, null)
@@ -435,8 +440,8 @@ class SenderSession(
       write(Frame(FrameType.VIDEO, FrameFlags.CODEC_CONFIG, 0, data))
     }
 
-    override fun onFrame(data: ByteArray, ptsUs: Long, keyframe: Boolean) {
-      write(Frame(FrameType.VIDEO, if (keyframe) FrameFlags.KEYFRAME else 0, ptsUs, data))
+    override fun onFrame(data: ByteArray, length: Int, ptsUs: Long, keyframe: Boolean) {
+      write(FrameType.VIDEO, if (keyframe) FrameFlags.KEYFRAME else 0, ptsUs, data, length)
     }
 
     override fun onError(error: Exception) {

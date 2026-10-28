@@ -51,16 +51,22 @@ class Frame(val type: FrameType, val flags: Int, val ptsUs: Long, val body: Byte
 class FrameWriter(output: OutputStream) {
   private val out = DataOutputStream(BufferedOutputStream(output, 64 * 1024))
 
+  fun write(frame: Frame) = write(frame.type, frame.flags, frame.ptsUs, frame.body, frame.body.size)
+
+  /**
+   * Writes a frame whose body is the first [length] bytes of [body]. The bytes are sent (or
+   * buffered) before this returns, so a sender can reuse one array for every frame instead of
+   * allocating a new one each time.
+   */
   @Synchronized
-  fun write(frame: Frame) {
-    require(frame.body.size <= Frame.MAX_BODY_SIZE) {
-      "Frame body of ${frame.body.size} bytes exceeds ${Frame.MAX_BODY_SIZE}"
-    }
-    out.writeByte(frame.type.code)
-    out.writeByte(frame.flags)
-    out.writeInt(frame.body.size)
-    out.writeLong(frame.ptsUs)
-    out.write(frame.body)
+  fun write(type: FrameType, flags: Int, ptsUs: Long, body: ByteArray, length: Int) {
+    require(length in 0..body.size) { "Length $length outside the body's ${body.size} bytes" }
+    require(length <= Frame.MAX_BODY_SIZE) { "Frame body of $length bytes exceeds ${Frame.MAX_BODY_SIZE}" }
+    out.writeByte(type.code)
+    out.writeByte(flags)
+    out.writeInt(length)
+    out.writeLong(ptsUs)
+    out.write(body, 0, length)
     out.flush()
   }
 }

@@ -2,6 +2,8 @@ package io.github.lumpilabs.beamline.receiver
 
 import android.content.Context
 import android.net.ConnectivityManager
+import android.net.wifi.WifiManager
+import android.os.Build
 import android.view.Surface
 import io.github.lumpilabs.beamline.protocol.FrameRateDetector.StandardRate
 import io.github.lumpilabs.beamline.protocol.VideoSize
@@ -43,6 +45,15 @@ class ReceiverController(private val context: Context, private val tvName: Strin
 
   @Volatile var surface: Surface? = null
 
+  /**
+   * Keeps Wi-Fi out of power saving while a phone mirrors: in power saving, the access point holds
+   * frames back and delivers them in bunches. The TV runs on mains power, so this costs nothing
+   * that matters.
+   */
+  private val wifiLock = context.getSystemService(WifiManager::class.java)
+    ?.createWifiLock(WIFI_LOCK_MODE, "Beamline:mirroring")
+    ?.apply { setReferenceCounted(false) }
+
   private val advertiser = ServiceAdvertiser(context)
   private var server: MirrorServer? = null
   private var candidateHz: Float? = null
@@ -66,6 +77,7 @@ class ReceiverController(private val context: Context, private val tvName: Strin
     advertiser.unregister()
     server?.stop()
     server = null
+    wifiLock?.release()
   }
 
   fun showError(message: String) {
@@ -82,6 +94,7 @@ class ReceiverController(private val context: Context, private val tvName: Strin
 
   /** A sender reconnecting after a lost connection keeps its picture on screen until new frames come. */
   override fun onConnected(senderName: String) {
+    wifiLock?.acquire()
     _state.update {
       if (it is ReceiverState.Connected && it.senderName == senderName) it else ReceiverState.Connected(senderName)
     }
@@ -115,6 +128,7 @@ class ReceiverController(private val context: Context, private val tvName: Strin
   }
 
   override fun onDisconnected(reason: MirrorServer.EndReason?) {
+    wifiLock?.release()
     candidateHz = null
     candidateReports = 0
     _refreshRate.value = null
@@ -135,5 +149,17 @@ class ReceiverController(private val context: Context, private val tvName: Strin
     const val SWITCH_AFTER_REPORTS = 4
     const val SWITCH_BACK_AFTER_REPORTS = 15
     const val DEFAULT_HZ = 60f
+
+    /**
+     * Low-latency mode exists from Android 10 and works while the app is in front with the screen
+     * on, as it is here. Before that (Fire OS 7 is Android 9), high-performance mode does the job.
+     */
+    @Suppress("DEPRECATION")
+    val WIFI_LOCK_MODE =
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+      } else {
+        WifiManager.WIFI_MODE_FULL_HIGH_PERF
+      }
   }
 }

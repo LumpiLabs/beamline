@@ -39,8 +39,6 @@ class VideoDecoder(
   interface Listener {
     fun onNeedKeyframe()
 
-    fun onFrameRendered()
-
     fun onDecoderError(error: Exception)
   }
 
@@ -181,7 +179,6 @@ class VideoDecoder(
       }
       val offset = showAt - info.presentationTimeUs * 1000
       renderOffsetNs = renderOffsetNs?.let { it + (offset - it) / 8 } ?: offset
-      listener.onFrameRendered()
     }
 
     override fun onError(codec: MediaCodec, e: MediaCodec.CodecException) {

@@ -70,10 +70,11 @@ class MainActivity : ComponentActivity() {
         val state by controller.state.collectAsState()
         val fill by controller.fill.collectAsState()
         val refreshRate by controller.refreshRate.collectAsState()
-        val stats by controller.stats.collectAsState()
         val showStats by controller.showStats.collectAsState()
+        // Followed only while showing, so the screen isn't recomposed every second for nothing.
+        val stats = if (showStats) controller.stats.collectAsState().value else null
         LaunchedEffect(refreshRate) { applyRefreshRate(refreshRate) }
-        ReceiverScreen(state, tvName, fill, stats.takeIf { showStats }, onSurface = { controller.surface = it })
+        ReceiverScreen(state, tvName, fill, stats, onSurface = { controller.surface = it })
       }
     }
   }

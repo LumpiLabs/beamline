@@ -21,7 +21,11 @@ class ScreenEncoder(videoCodec: String, size: VideoSize, fps: Int, bitrate: Int,
     /** Parameter sets (SPS and PPS, plus VPS for HEVC), needed by the decoder before the first frame. */
     fun onCodecConfig(data: ByteArray)
 
-    fun onFrame(data: ByteArray, ptsUs: Long, keyframe: Boolean)
+    /**
+     * One encoded frame: the first [length] bytes of [data]. [data] is reused for the next frame,
+     * so it must be sent or copied before this returns.
+     */
+    fun onFrame(data: ByteArray, length: Int, ptsUs: Long, keyframe: Boolean)
 
     fun onError(error: Exception)
   }
@@ -89,25 +93,34 @@ class ScreenEncoder(videoCodec: String, size: VideoSize, fps: Int, bitrate: Int,
     inputSurface.release()
   }
 
+  /**
+   * Copies each frame into one reused array: at 9 Mbit/s, a new array per frame would leave over a
+   * megabyte of garbage a second for the phone to collect.
+   */
   private fun drain() {
     val info = MediaCodec.BufferInfo()
+    var frame = ByteArray(INITIAL_FRAME_BYTES)
     try {
       while (running.get()) {
         val index = codec.dequeueOutputBuffer(info, DRAIN_TIMEOUT_US)
         if (index < 0) continue
         val buffer = codec.getOutputBuffer(index)
-        val data = ByteArray(info.size)
-        if (buffer != null && info.size > 0) {
+        val length = if (buffer != null) info.size else 0
+        val config = info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0
+        if (!config && frame.size < length) frame = ByteArray(length + length / 2)
+        // Codec configs are kept for resending, so they get an array of their own.
+        val target = if (config) ByteArray(length) else frame
+        if (buffer != null && length > 0) {
           buffer.position(info.offset)
-          buffer.limit(info.offset + info.size)
-          buffer.get(data)
+          buffer.limit(info.offset + length)
+          buffer.get(target, 0, length)
         }
         val flags = info.flags
         val ptsUs = info.presentationTimeUs
         codec.releaseOutputBuffer(index, false)
         when {
-          flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0 -> sink.onCodecConfig(data)
-          data.isNotEmpty() -> sink.onFrame(data, ptsUs, flags and MediaCodec.BUFFER_FLAG_KEY_FRAME != 0)
+          config -> sink.onCodecConfig(target)
+          length > 0 -> sink.onFrame(target, length, ptsUs, flags and MediaCodec.BUFFER_FLAG_KEY_FRAME != 0)
         }
         if (flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) break
       }
@@ -118,6 +131,9 @@ class ScreenEncoder(videoCodec: String, size: VideoSize, fps: Int, bitrate: Int,
 
   companion object {
     private const val DRAIN_TIMEOUT_US = 100_000L
+
+    /** Enough for most frames at 9 Mbit/s; keyframes grow it once. */
+    private const val INITIAL_FRAME_BYTES = 256 * 1024
     private const val REPEAT_AFTER_US = 100_000L
 
     /**

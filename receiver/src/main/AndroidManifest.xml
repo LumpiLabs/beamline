@@ -4,6 +4,8 @@
   <uses-permission android:name="android.permission.INTERNET" />
   <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
   <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
+  <!-- For the Wi-Fi lock that keeps Wi-Fi out of power saving while a phone mirrors. -->
+  <uses-permission android:name="android.permission.WAKE_LOCK" />
 
   <uses-feature
     android:name="android.software.leanback"
