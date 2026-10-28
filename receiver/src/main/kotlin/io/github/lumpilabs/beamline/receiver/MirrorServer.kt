@@ -1,10 +1,10 @@
 package io.github.lumpilabs.beamline.receiver
 
-import android.os.SystemClock
 import android.util.Log
 import android.view.Surface
 import io.github.lumpilabs.beamline.protocol.AudioConfig
 import io.github.lumpilabs.beamline.protocol.Bye
+import io.github.lumpilabs.beamline.protocol.ClockSync
 import io.github.lumpilabs.beamline.protocol.Codecs
 import io.github.lumpilabs.beamline.protocol.Control
 import io.github.lumpilabs.beamline.protocol.ControlCodec
@@ -51,6 +51,9 @@ class MirrorServer(
     /** About once a second while streaming: the content's steady frame rate, if any. */
     fun onContentFrameRate(rate: FrameRateDetector.StandardRate?)
 
+    /** About once a second while streaming. */
+    fun onStats(stats: StatsSnapshot)
+
     fun onDisconnected(reason: String?)
   }
 
@@ -93,8 +96,8 @@ class MirrorServer(
 
   /**
    * Makes [session] the one on screen. A session from the same sender as the active one replaces
-   * it; the old one is torn down first so its decoder lets go of the screen. Returns false when the
-   * TV is busy with another sender.
+   * it, keeping its statistics; the old one is torn down first so its decoder lets go of the
+   * screen. Returns false when the TV is busy with another sender.
    */
   private fun claim(session: Session, senderId: String?): Boolean {
     val previous = synchronized(lock) {
@@ -107,6 +110,7 @@ class MirrorServer(
       Log.i(TAG, "The sender reconnected, replacing its old connection")
       previous.close()
       previous.awaitEnd()
+      session.stats = previous.stats.also { it.onReconnect() }
     }
     return true
   }
@@ -126,10 +130,16 @@ class MirrorServer(
     private var audio: AudioPlayer? = null
     private var config: StreamConfig? = null
     private val clock = PlaybackClock { audio?.audibleOffsetNs }
+    private val clockSync = ClockSync()
+    private var nextPingId = 0
+    private var loggedMinute = -1L
     private val ended = CountDownLatch(1)
 
     @Volatile var senderId: String? = null
       private set
+
+    /** Set before streaming starts; a reconnecting sender's session takes over the old one's. */
+    @Volatile var stats = PlaybackStats()
 
     fun run() {
       var claimed = false
@@ -194,7 +204,11 @@ class MirrorServer(
           when (frame.type) {
             FrameType.CONTROL -> if (!handleControl(frame)) break
             FrameType.VIDEO -> {
-              if (!frame.hasFlag(FrameFlags.CODEC_CONFIG)) clock.onVideoArrival(frame.ptsUs)
+              if (!frame.hasFlag(FrameFlags.CODEC_CONFIG)) {
+                val now = System.nanoTime()
+                clock.onVideoArrival(frame.ptsUs, now)
+                stats.onVideoArrival(frame.ptsUs, frame.body.size, now)
+              }
               decoder?.submit(frame)
             }
             FrameType.AUDIO -> audio?.submit(frame)
@@ -214,20 +228,48 @@ class MirrorServer(
         is StreamConfig -> startDecoder(message)
         is AudioConfig -> startAudio(message)
         is Ping -> {
-          send(Pong(message.id, message.timeUs, SystemClock.elapsedRealtimeNanos() / 1000))
+          send(Pong(message.id, message.timeUs, nowUs()))
+          // Pinging back tells how far the sender's clock is from the TV's, and so the delay.
+          send(Ping(nextPingId++, nowUs()))
           events.onContentFrameRate(clock.steadyFrameRate())
+          reportStats()
           if (message.id % 5 == 0) logSync()
         }
+        is Pong -> clockSync.add(message.pingTimeUs, nowUs(), message.timeUs)
         is Bye -> return false
         else -> Unit
       }
       return true
     }
 
+    /**
+     * Passes the figures on for the statistics overlay, and logs them once a minute. The delay
+     * needs the sender's clock, which only senders that answer the TV's pings tell.
+     */
+    private fun reportStats() {
+      val shown = decoder?.renderOffsetNs
+      val audible = audio?.audibleOffsetNs
+      val offsetNs = clockSync.offsetUs?.times(1000)
+      val delayNs = if (shown != null && offsetNs != null) shown - offsetNs else null
+      val snapshot = stats.snapshot(
+        video = config?.let { VideoSize(it.width, it.height) },
+        contentRate = clock.steadyFrameRate(),
+        delayNs = delayNs?.takeIf { it in 0..MAX_PLAUSIBLE_DELAY_NS },
+        roundTripUs = clockSync.roundTripUs,
+        skewNs = if (shown != null && audible != null) audible - shown else null,
+      )
+      events.onStats(snapshot)
+      val minute = snapshot.elapsedMs / 60_000
+      if (minute != loggedMinute) {
+        loggedMinute = minute
+        Log.i(TAG, snapshot.summary())
+      }
+    }
+
     private fun startAudio(audioConfig: AudioConfig) {
       audio?.release()
       audio = try {
-        AudioPlayer(audioConfig)
+        AudioPlayer(audioConfig, stats)
       } catch (e: Exception) {
         Log.w(TAG, "Can't play this audio, continuing without sound", e)
         null
@@ -251,7 +293,7 @@ class MirrorServer(
       decoder = null
       config = newConfig
       val surface = awaitSurface() ?: throw IOException("The TV screen isn't ready")
-      decoder = VideoDecoder(surface, newConfig, clock, this)
+      decoder = VideoDecoder(surface, newConfig, clock, stats, this)
       events.onVideoSize(VideoSize(newConfig.width, newConfig.height))
     }
 
@@ -264,6 +306,9 @@ class MirrorServer(
     }
 
     private fun send(message: Control) = writer.write(ControlCodec.toFrame(message))
+
+    /** The TV's clock for pings and pongs: the one frames are shown by. */
+    private fun nowUs(): Long = System.nanoTime() / 1000
 
     override fun onNeedKeyframe() {
       runCatching { send(RequestKeyframe) }
@@ -303,6 +348,9 @@ class MirrorServer(
 
     /** How long a reconnecting sender waits for its old session to let go of the screen. */
     private const val REPLACE_TIMEOUT_MS = 3_000L
+
+    /** A larger delay means the sender's pongs use another clock than its frames (older apps). */
+    private const val MAX_PLAUSIBLE_DELAY_NS = 5_000_000_000L
     const val MAX_FPS = 60
 
     /** Full HD height; wider than 16:9 so a 20:9 phone in landscape keeps full detail when filled. */

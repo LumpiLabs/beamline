@@ -23,12 +23,14 @@ import java.util.concurrent.TimeUnit
  * If the buffer overflows (the network delivered far more than can be shown), queued frames are
  * dropped and [Listener.onNeedKeyframe] asks the sender for a fresh keyframe.
  *
- * All MediaCodec calls happen on one handler thread.
+ * Shown, late and dropped frames are counted in [stats]. All MediaCodec calls happen on one
+ * handler thread.
  */
 class VideoDecoder(
   surface: Surface,
   config: StreamConfig,
   private val clock: PlaybackClock,
+  private val stats: PlaybackStats,
   private val listener: Listener,
 ) {
   interface Listener {
@@ -94,13 +96,19 @@ class VideoDecoder(
     if (released) return
     val isConfig = frame.hasFlag(FrameFlags.CODEC_CONFIG)
     val isKeyframe = frame.hasFlag(FrameFlags.KEYFRAME)
-    if (waitingForKeyframe && !isConfig && !isKeyframe) return
+    if (waitingForKeyframe && !isConfig && !isKeyframe) {
+      stats.framesDropped.incrementAndGet()
+      return
+    }
     if (isKeyframe) waitingForKeyframe = false
 
     if (pending.size >= MAX_PENDING && !isConfig) {
       // Far more queued than any sensible buffer: start over from the next keyframe.
+      val queued = pending.size
       pending.removeAll { !it.frame.hasFlag(FrameFlags.CODEC_CONFIG) }
+      stats.framesDropped.addAndGet((queued - pending.size).toLong())
       if (!isKeyframe) {
+        stats.framesDropped.incrementAndGet()
         waitingForKeyframe = true
         listener.onNeedKeyframe()
         return
@@ -129,6 +137,7 @@ class VideoDecoder(
       val frame = next.frame
       if (frame.body.size > buffer.capacity()) {
         freeInputs.addFirst(index)
+        stats.framesDropped.incrementAndGet()
         waitingForKeyframe = true
         listener.onNeedKeyframe()
         continue
@@ -159,6 +168,8 @@ class VideoDecoder(
       if (released) return
       val now = System.nanoTime()
       val target = renderTimes.remove(info.presentationTimeUs)
+      if (target != null && now - target >= LATE_NS) stats.framesLate.incrementAndGet()
+      stats.framesShown.incrementAndGet()
       val showAt = if (target == null || target <= now + ON_TIME_NS) {
         codec.releaseOutputBuffer(index, true)
         now
@@ -193,6 +204,9 @@ class VideoDecoder(
 
     /** Never hold a decoded frame longer than this: the decoder has only a few output buffers. */
     const val MAX_HOLD_NS = 100_000_000L
+
+    /** A frame decoded this long after its time misses at least one refresh of a 60 Hz screen. */
+    const val LATE_NS = 16_700_000L
 
     const val MAX_RENDER_TIMES = 256
   }

@@ -10,4 +10,26 @@
   <string name="hint_fill">Filling the screen · Press OK to show the whole picture</string>
   <string name="hint_fit">Showing the whole picture · Press OK to fill the screen</string>
   <string name="protocol_version">Protocol version %1$d</string>
+  <string name="stats_mirroring">Mirroring</string>
+  <string name="stats_mirroring_value">%1$s, reconnects %2$d</string>
+  <string name="stats_picture">Picture</string>
+  <string name="stats_picture_value">%1$d × %2$d, %3$.1f fps, %4$.1f Mbit/s</string>
+  <string name="stats_content">Content</string>
+  <string name="stats_content_value">%1$s, TV at %2$d Hz</string>
+  <string name="stats_content_fps">%1$s fps</string>
+  <string name="stats_content_varying">varying</string>
+  <string name="stats_delay">Delay</string>
+  <string name="stats_delay_value">%1$s behind the phone</string>
+  <string name="stats_wifi">Wi-Fi</string>
+  <string name="stats_wifi_value">round trip %1$s, jitter %2$s, worst %3$s</string>
+  <string name="stats_frames">Frames</string>
+  <string name="stats_frames_value">late %1$d, dropped %2$d</string>
+  <string name="stats_sound">Sound</string>
+  <string name="stats_sound_value">buffer %1$s, sync %2$s</string>
+  <string name="stats_sound_off">none</string>
+  <string name="stats_sound_gaps">Sound gaps</string>
+  <string name="stats_sound_gaps_value">dropped %1$d, skipped %2$s, restarts %3$d</string>
+  <string name="stats_ms">%1$d ms</string>
+  <string name="stats_signed_ms">%1$+d ms</string>
+  <string name="stats_unknown">–</string>
 </resources>

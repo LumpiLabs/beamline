@@ -326,7 +326,11 @@ class SenderSession(
     }
   }
 
-  private fun nowUs(): Long = SystemClock.elapsedRealtimeNanos() / 1000
+  /**
+   * The clock of pings and pongs: the one video and sound are stamped with, so the TV can tell from
+   * the round trips how far behind the phone its picture is.
+   */
+  private fun nowUs(): Long = System.nanoTime() / 1000
 
   private fun startEncoder(size: VideoSize): ScreenEncoder {
     val fps = min(welcome.maxFps, MAX_FPS)

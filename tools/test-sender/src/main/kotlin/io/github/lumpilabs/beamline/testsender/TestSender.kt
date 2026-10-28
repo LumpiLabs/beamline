@@ -82,6 +82,8 @@ fun main(args: Array<String>) {
 
     val keyframeRequests = AtomicInteger()
     val pingSentAt = ConcurrentHashMap<Int, Long>()
+    // Timestamps count from here, for frames and for answering the TV's pings alike.
+    val start = System.nanoTime()
     thread(isDaemon = true) {
       runCatching {
         while (true) {
@@ -89,6 +91,7 @@ fun main(args: Array<String>) {
           if (frame.type != FrameType.CONTROL) continue
           when (val message = ControlCodec.decode(frame.body)) {
             is RequestKeyframe -> keyframeRequests.incrementAndGet()
+            is Ping -> writer.write(ControlCodec.toFrame(Pong(message.id, message.timeUs, (System.nanoTime() - start) / 1000)))
             is Pong -> pingSentAt.remove(message.id)?.let {
               println("Round trip: ${(System.nanoTime() - it) / 1_000_000} ms")
             }
@@ -101,7 +104,6 @@ fun main(args: Array<String>) {
 
     writer.write(ControlCodec.toFrame(StreamConfig(Codecs.H264, size.width, size.height, fps)))
     writer.write(Frame(FrameType.VIDEO, FrameFlags.CODEC_CONFIG, 0, clip.codecConfig))
-    val start = System.nanoTime()
     hiccupAt?.let { output.dueNs = start + it * 1_000_000_000L }
     val audio = sound?.takeIf { Codecs.OPUS in welcome.audioCodecs }?.let { opus ->
       writer.write(ControlCodec.toFrame(AudioConfig(Codecs.OPUS, 48_000, opus.channels)))

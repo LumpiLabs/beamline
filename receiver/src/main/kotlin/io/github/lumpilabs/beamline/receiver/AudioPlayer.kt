@@ -40,10 +40,11 @@ import kotlin.math.min
  * Android's mixer disables a track that runs dry for a while, for example before the phone plays
  * anything. A track whose position stops moving is therefore restarted automatically.
  *
- * [audibleOffsetNs] tells when a sender timestamp is heard, for syncing video to the sound.
- * All codec and track calls happen on one handler thread.
+ * [audibleOffsetNs] tells when a sender timestamp is heard, for syncing video to the sound. The
+ * queue level and every gap are counted in [stats]. All codec and track calls happen on one
+ * handler thread.
  */
-class AudioPlayer(private val config: AudioConfig) {
+class AudioPlayer(private val config: AudioConfig, private val stats: PlaybackStats) {
   private val thread = HandlerThread("beamline-audio").also { it.start() }
   private val handler = Handler(thread.looper)
   private val bytesPerFrame = config.channels * 2
@@ -67,11 +68,8 @@ class AudioPlayer(private val config: AudioConfig) {
   private var floorSinceNs = 0L
   private var trimFrames = 0L
 
-  // Diagnostics, logged every few seconds.
+  // Logged every few seconds, with the totals from [stats].
   private var peakDbfs = -96.0
-  private var droppedChunks = 0
-  private var skippedMs = 0L
-  private var restarts = 0
   private var lastReportNs = 0L
 
   /** Local System.nanoTime minus sender time (ns) at which audio is heard, smoothed; null while silent. */
@@ -111,6 +109,7 @@ class AudioPlayer(private val config: AudioConfig) {
     handler.post {
       released = true
       audibleOffsetNs = null
+      stats.soundQueuedMs = null
       codec?.let {
         runCatching { it.stop() }
         it.release()
@@ -179,10 +178,11 @@ class AudioPlayer(private val config: AudioConfig) {
     if (playing) restartIfStalled()
     val frames = pcm.size / bytesPerFrame
     val queued = bufferedFrames() + pendingFrames
+    stats.soundQueuedMs = queued * 1000 / config.sampleRate
     if (trimFrames > 0) {
       trimFrames -= frames
     } else if (queued > framesFor(MAX_BUFFERED_MS)) {
-      droppedChunks++
+      stats.soundDroppedChunks.incrementAndGet()
     } else {
       pending.addLast(Pcm(pcm, ptsUs))
       pendingFrames += frames
@@ -207,7 +207,7 @@ class AudioPlayer(private val config: AudioConfig) {
     if (floorFrames > framesFor(START_BUFFER_MS + TRIM_MARGIN_MS)) {
       trimFrames = floorFrames - framesFor(START_BUFFER_MS)
       val ms = trimFrames * 1000 / config.sampleRate
-      skippedMs += ms
+      stats.soundSkippedMs.addAndGet(ms)
       Log.i(TAG, "Skipping $ms ms of sound to bring the delay back down")
     }
     floorFrames = Long.MAX_VALUE
@@ -256,7 +256,7 @@ class AudioPlayer(private val config: AudioConfig) {
       return
     }
     if (now - lastHeadChangeNs < STALL_NS) return
-    restarts++
+    stats.soundRestarts.incrementAndGet()
     runCatching {
       track.pause()
       track.flush()
@@ -288,9 +288,9 @@ class AudioPlayer(private val config: AudioConfig) {
       "Audio peak %.0f dBFS, buffered %d ms, dropped %d chunks, skipped %d ms, %d restarts".format(
         peakDbfs,
         bufferedFrames() * 1000 / config.sampleRate,
-        droppedChunks,
-        skippedMs,
-        restarts,
+        stats.soundDroppedChunks.get(),
+        stats.soundSkippedMs.get(),
+        stats.soundRestarts.get(),
       ),
     )
     peakDbfs = -96.0

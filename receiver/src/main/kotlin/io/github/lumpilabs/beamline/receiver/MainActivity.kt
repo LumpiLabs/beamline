@@ -4,6 +4,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.text.format.DateUtils
 import android.util.Log
 import android.view.KeyEvent
 import android.view.Surface
@@ -12,13 +13,16 @@ import android.view.SurfaceView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -31,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
@@ -40,8 +45,11 @@ import androidx.core.content.ContextCompat
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import androidx.tv.material3.darkColorScheme
+import io.github.lumpilabs.beamline.protocol.FrameRateDetector
 import io.github.lumpilabs.beamline.protocol.Protocol
+import io.github.lumpilabs.beamline.protocol.VideoSize
 import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
@@ -61,17 +69,26 @@ class MainActivity : ComponentActivity() {
         val state by controller.state.collectAsState()
         val fill by controller.fill.collectAsState()
         val refreshRate by controller.refreshRate.collectAsState()
+        val stats by controller.stats.collectAsState()
+        val showStats by controller.showStats.collectAsState()
         LaunchedEffect(refreshRate) { applyRefreshRate(refreshRate) }
-        ReceiverScreen(state, tvName, fill, onSurface = { controller.surface = it })
+        ReceiverScreen(state, tvName, fill, stats.takeIf { showStats }, onSurface = { controller.surface = it })
       }
     }
   }
 
-  /** OK on the remote switches between filling the screen and showing the whole picture. */
+  /**
+   * OK on the remote switches between filling the screen and showing the whole picture; Menu shows
+   * or hides the statistics (Up does too, for remotes without a Menu button).
+   */
   override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
     val streaming = (controller.state.value as? ReceiverState.Connected)?.video != null
     if (streaming && keyCode in OK_KEYS) {
       controller.toggleFill()
+      return true
+    }
+    if (streaming && keyCode in STATS_KEYS) {
+      controller.toggleStats()
       return true
     }
     return super.onKeyDown(keyCode, event)
@@ -129,13 +146,26 @@ class MainActivity : ComponentActivity() {
       KeyEvent.KEYCODE_BUTTON_A,
     )
 
+    val STATS_KEYS = setOf(
+      KeyEvent.KEYCODE_MENU,
+      KeyEvent.KEYCODE_INFO,
+      KeyEvent.KEYCODE_DPAD_UP,
+    )
+
     /** Manifest.permission.ACCESS_LOCAL_NETWORK, spelled out because the constant is API 37. */
     const val LOCAL_NETWORK_PERMISSION = "android.permission.ACCESS_LOCAL_NETWORK"
   }
 }
 
+/** [stats] is null while the statistics overlay is off. */
 @Composable
-fun ReceiverScreen(state: ReceiverState, tvName: String, fill: Boolean, onSurface: (Surface?) -> Unit) {
+fun ReceiverScreen(
+  state: ReceiverState,
+  tvName: String,
+  fill: Boolean,
+  stats: StatsSnapshot?,
+  onSurface: (Surface?) -> Unit,
+) {
   val video = (state as? ReceiverState.Connected)?.video
   val streaming = video != null
   val view = LocalView.current
@@ -157,6 +187,73 @@ fun ReceiverScreen(state: ReceiverState, tvName: String, fill: Boolean, onSurfac
     } else if (aspect >= MIN_FILL_ASPECT) {
       ZoomHint(fill, Modifier.align(Alignment.BottomCenter))
     }
+    if (streaming && stats != null) {
+      StatsOverlay(stats, (state as ReceiverState.Connected).senderName, Modifier.align(Alignment.TopStart))
+    }
+  }
+}
+
+/** Playback figures over the picture, for checking a long session or a bad Wi-Fi spot. */
+@Composable
+private fun StatsOverlay(stats: StatsSnapshot, senderName: String, modifier: Modifier) {
+  val resources = LocalResources.current
+  // Read on every update, so a refresh-rate switch shows within a second.
+  val refreshHz = LocalView.current.display?.refreshRate?.roundToInt()
+  val unknown = stringResource(R.string.stats_unknown)
+  fun ms(value: Long?): String = value?.let { resources.getString(R.string.stats_ms, it) } ?: unknown
+
+  Column(
+    modifier
+      .padding(32.dp)
+      .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(8.dp))
+      .padding(horizontal = 20.dp, vertical = 14.dp),
+    verticalArrangement = Arrangement.spacedBy(4.dp),
+  ) {
+    Text(senderName, style = MaterialTheme.typography.titleMedium, color = Color.White)
+    StatsRow(
+      R.string.stats_mirroring,
+      stringResource(R.string.stats_mirroring_value, DateUtils.formatElapsedTime(stats.elapsedMs / 1000), stats.reconnects),
+    )
+    stats.video?.let {
+      StatsRow(
+        R.string.stats_picture,
+        stringResource(R.string.stats_picture_value, it.width, it.height, stats.shownFps, stats.bitrateKbps / 1000.0),
+      )
+    }
+    val content = stats.contentRate?.let { stringResource(R.string.stats_content_fps, it.name.removePrefix("FPS_")) }
+      ?: stringResource(R.string.stats_content_varying)
+    StatsRow(R.string.stats_content, refreshHz?.let { stringResource(R.string.stats_content_value, content, it) } ?: content)
+    StatsRow(R.string.stats_delay, stats.delayMs?.let { stringResource(R.string.stats_delay_value, ms(it)) } ?: unknown)
+    StatsRow(
+      R.string.stats_wifi,
+      stringResource(R.string.stats_wifi_value, ms(stats.roundTripMs), ms(stats.jitterMs), ms(stats.worstJitterMs)),
+    )
+    StatsRow(R.string.stats_frames, stringResource(R.string.stats_frames_value, stats.framesLate, stats.framesDropped))
+    val sync = stats.skewMs?.let { stringResource(R.string.stats_signed_ms, it) } ?: unknown
+    StatsRow(
+      R.string.stats_sound,
+      stats.soundQueuedMs?.let { stringResource(R.string.stats_sound_value, ms(it), sync) }
+        ?: stringResource(R.string.stats_sound_off),
+    )
+    StatsRow(
+      R.string.stats_sound_gaps,
+      stringResource(
+        R.string.stats_sound_gaps_value,
+        stats.soundDroppedChunks,
+        ms(stats.soundSkippedMs),
+        stats.soundRestarts,
+      ),
+    )
+  }
+}
+
+@Composable
+private fun StatsRow(@StringRes label: Int, value: String) {
+  // Digits of equal width, so the values don't wobble as they change every second.
+  val style = MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = "tnum")
+  Row {
+    Text(stringResource(label), style = style, color = Color.White.copy(alpha = 0.7f), modifier = Modifier.width(140.dp))
+    Text(value, style = style, color = Color.White)
   }
 }
 
@@ -259,5 +356,36 @@ private fun StatusScreen(state: ReceiverState, tvName: String) {
 private fun IdlePreview() {
   MaterialTheme(colorScheme = darkColorScheme()) {
     StatusScreen(ReceiverState.Idle("192.168.1.50"), "Fire TV Stick 4K Max")
+  }
+}
+
+@Preview(device = "id:tv_1080p")
+@Composable
+private fun StatsPreview() {
+  MaterialTheme(colorScheme = darkColorScheme()) {
+    StatsOverlay(
+      StatsSnapshot(
+        elapsedMs = 754_000,
+        reconnects = 1,
+        video = VideoSize(1920, 864),
+        receivedFps = 25.0,
+        shownFps = 25.0,
+        bitrateKbps = 4_200,
+        contentRate = FrameRateDetector.StandardRate.FPS_25,
+        framesLate = 3,
+        framesDropped = 12,
+        delayMs = 342,
+        roundTripMs = 6,
+        jitterMs = 18,
+        worstJitterMs = 1_040,
+        soundQueuedMs = 312,
+        skewMs = 4,
+        soundDroppedChunks = 0,
+        soundSkippedMs = 205,
+        soundRestarts = 1,
+      ),
+      "Galaxy S26+",
+      Modifier,
+    )
   }
 }

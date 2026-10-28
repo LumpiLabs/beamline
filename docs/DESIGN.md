@@ -86,6 +86,9 @@ peers can add both. Messages: `hello` (versions, device name, capabilities, and 
 `welcome` (chosen version and stream limits), `stream` (codec, width, height, fps,
 rotation, sent before each new video config), `request_keyframe`, `bitrate_hint`,
 `ping`/`pong` (round-trip time and clock offset), `stats`, and `bye` (with reason).
+Both sides ping once a second. The sender's `time_us` in pings and pongs is on the
+same clock as its `pts_us`, so the receiver can work out from the round trips how far
+its picture is behind the sender's screen.
 
 ### Security and pairing
 
@@ -177,8 +180,16 @@ paired phones or to ask every time.
   clock for A/V sync; without sound, video plays 250 ms behind the fastest observed
   network transit.
 - **UI:** a leanback launcher banner, an idle screen with the TV's name and pairing
-  status, a full-screen player, a statistics overlay (bitrate, fps, latency, dropped
-  frames) on a remote button, and settings that work with the D-pad.
+  status, a full-screen player, and settings that work with the D-pad.
+- **Statistics:** Menu on the remote (or Up, on remotes without Menu) shows an overlay
+  with how long the phone has been mirroring and how often it reconnected, the
+  picture's size, shown frame rate and bitrate, the content rate and the TV's refresh
+  rate, the delay behind the phone, the Wi-Fi round trip and jitter (the spread in
+  how long frames take to arrive, over the last second and the worst so far), late
+  and dropped frames, the sound buffer and A/V sync, and the sound's gaps (dropped
+  chunks, skipped sound, restarts). Counts carry over a reconnect. The delay runs
+  from capture on the phone to the TV handing the frame to its screen, so the TV's
+  own picture processing comes on top. The same figures go to the log once a minute.
 - **Sessions:** one active stream at a time. A second sender gets a "TV is busy"
   answer, or replaces the current stream if the user allows that in settings. The TV
   ends a session after 10 seconds without data. A phone that comes back sooner (same
@@ -202,8 +213,6 @@ Planned for M3:
   the bitrate.
 - Bitrate adapts between 2 and 20 Mbit/s based on send backlog and receiver `stats`
   (decode queue length, late frames).
-- `ping`/`pong` every second already measures round-trip time; the statistics overlay
-  will show it with the end-to-end delay.
 
 ## Known limits
 

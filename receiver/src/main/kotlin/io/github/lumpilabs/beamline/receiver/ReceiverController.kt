@@ -32,6 +32,14 @@ class ReceiverController(private val context: Context, private val tvName: Strin
   private val _refreshRate = MutableStateFlow<Float?>(null)
   val refreshRate: StateFlow<Float?> = _refreshRate
 
+  /** The latest playback figures while a sender is connected. */
+  private val _stats = MutableStateFlow<StatsSnapshot?>(null)
+  val stats: StateFlow<StatsSnapshot?> = _stats
+
+  /** Whether the statistics overlay is on; it stays on for the next sender until switched off. */
+  private val _showStats = MutableStateFlow(false)
+  val showStats: StateFlow<Boolean> = _showStats
+
   @Volatile var surface: Surface? = null
 
   private val advertiser = ServiceAdvertiser(context)
@@ -67,6 +75,10 @@ class ReceiverController(private val context: Context, private val tvName: Strin
     _fill.update { !it }
   }
 
+  fun toggleStats() {
+    _showStats.update { !it }
+  }
+
   /** A sender reconnecting after a lost connection keeps its picture on screen until new frames come. */
   override fun onConnected(senderName: String) {
     _state.update {
@@ -97,10 +109,15 @@ class ReceiverController(private val context: Context, private val tvName: Strin
     if (candidateReports >= needed && _refreshRate.value != wanted) _refreshRate.value = wanted
   }
 
+  override fun onStats(stats: StatsSnapshot) {
+    _stats.value = stats
+  }
+
   override fun onDisconnected(reason: String?) {
     candidateHz = null
     candidateReports = 0
     _refreshRate.value = null
+    _stats.value = null
     _state.value = ReceiverState.Idle(localAddress(), reason)
   }
 
