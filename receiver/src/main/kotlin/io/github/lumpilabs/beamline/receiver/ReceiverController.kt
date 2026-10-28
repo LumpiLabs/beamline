@@ -113,12 +113,12 @@ class ReceiverController(private val context: Context, private val tvName: Strin
     _stats.value = stats
   }
 
-  override fun onDisconnected(reason: String?) {
+  override fun onDisconnected(reason: MirrorServer.EndReason?) {
     candidateHz = null
     candidateReports = 0
     _refreshRate.value = null
     _stats.value = null
-    _state.value = ReceiverState.Idle(localAddress(), reason)
+    _state.value = ReceiverState.Idle(localAddress(), reason?.let { context.getString(it.message) })
   }
 
   private fun localAddress(): String? {

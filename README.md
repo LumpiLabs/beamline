@@ -2,7 +2,7 @@
 
 Free, open-source screen mirroring to Fire TV and Android TV: one TV app for iPads,
 iPhones and Macs (over AirPlay) and Android phones (with the Beamline sender app).
-No ads, accounts, subscriptions or tracking.
+No ads, accounts, subscriptions or tracking. In English and German.
 
 > **Status:** in development, nothing to install yet. A Galaxy S26+ mirrors smoothly
 > with sound to a Fire TV Stick 4K Max and picks up again by itself after a Wi-Fi drop;

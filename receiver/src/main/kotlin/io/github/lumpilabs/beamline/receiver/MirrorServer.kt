@@ -2,6 +2,7 @@ package io.github.lumpilabs.beamline.receiver
 
 import android.util.Log
 import android.view.Surface
+import androidx.annotation.StringRes
 import io.github.lumpilabs.beamline.protocol.AudioConfig
 import io.github.lumpilabs.beamline.protocol.Bye
 import io.github.lumpilabs.beamline.protocol.ClockSync
@@ -54,8 +55,21 @@ class MirrorServer(
     /** About once a second while streaming. */
     fun onStats(stats: StatsSnapshot)
 
-    fun onDisconnected(reason: String?)
+    /** [reason] is null when the sender ended the session itself. */
+    fun onDisconnected(reason: EndReason?)
   }
+
+  /** Why a session ended, for the TV's idle screen. */
+  enum class EndReason(@StringRes val message: Int) {
+    SENDER_SILENT(R.string.end_sender_silent),
+    SCREEN_NOT_READY(R.string.end_screen_not_ready),
+    CONNECTION_LOST(R.string.end_connection_lost),
+    FAILED(R.string.end_failed),
+  }
+
+  private class SenderSilentException : IOException("No data from the sender for ${STREAM_TIMEOUT_MS / 1000} s")
+
+  private class ScreenNotReadyException : IOException("The TV screen isn't ready")
 
   @Volatile private var serverSocket: ServerSocket? = null
 
@@ -143,7 +157,7 @@ class MirrorServer(
 
     fun run() {
       var claimed = false
-      var reason: String? = null
+      var reason: EndReason? = null
       try {
         val hello = handshake()
         val version = Protocol.negotiate(hello.versions)
@@ -160,10 +174,14 @@ class MirrorServer(
         events.onConnected(hello.name)
         stream()
       } catch (e: IOException) {
-        reason = e.message
+        reason = when (e) {
+          is SenderSilentException -> EndReason.SENDER_SILENT
+          is ScreenNotReadyException -> EndReason.SCREEN_NOT_READY
+          else -> EndReason.CONNECTION_LOST
+        }
         Log.i(TAG, "Session ended: ${e.message}")
       } catch (e: RuntimeException) {
-        reason = e.message
+        reason = EndReason.FAILED
         Log.w(TAG, "Session failed", e)
       } finally {
         runCatching { socket.close() }
@@ -199,7 +217,7 @@ class MirrorServer(
           val frame = try {
             reader.read()
           } catch (_: SocketTimeoutException) {
-            throw IOException("No data from the sender for ${STREAM_TIMEOUT_MS / 1000} s")
+            throw SenderSilentException()
           } ?: break
           when (frame.type) {
             FrameType.CONTROL -> if (!handleControl(frame)) break
@@ -292,7 +310,7 @@ class MirrorServer(
       decoder?.release()
       decoder = null
       config = newConfig
-      val surface = awaitSurface() ?: throw IOException("The TV screen isn't ready")
+      val surface = awaitSurface() ?: throw ScreenNotReadyException()
       decoder = VideoDecoder(surface, newConfig, clock, stats, this)
       events.onVideoSize(VideoSize(newConfig.width, newConfig.height))
     }
@@ -344,6 +362,7 @@ class MirrorServer(
   companion object {
     private const val TAG = "BeamlineServer"
     private const val HANDSHAKE_TIMEOUT_MS = 5_000
+    /** The string end_sender_silent names this time too. */
     private const val STREAM_TIMEOUT_MS = 10_000
 
     /** How long a reconnecting sender waits for its old session to let go of the screen. */

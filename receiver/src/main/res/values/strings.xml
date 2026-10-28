@@ -1,22 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-  <string name="app_name">Beamline</string>
+  <string name="app_name" translatable="false">Beamline</string>
   <string name="idle_waiting">Waiting for a phone or tablet…</string>
   <string name="idle_device_name">This TV: %1$s</string>
   <string name="idle_address">Address: %1$s</string>
   <string name="idle_last_session_ended">Last session ended: %1$s</string>
   <string name="connected_waiting_for_video">Connected to %1$s, waiting for the picture…</string>
   <string name="error_local_network_denied">Beamline needs access to your local network to receive phones and tablets. Allow it in the app settings.</string>
+  <string name="end_sender_silent">nothing arrived from the phone for 10 seconds.</string>
+  <string name="end_screen_not_ready">the TV screen wasn\'t ready.</string>
+  <string name="end_connection_lost">the connection was lost.</string>
+  <string name="end_failed">playback failed.</string>
   <string name="hint_fill">Filling the screen · Press OK to show the whole picture</string>
   <string name="hint_fit">Showing the whole picture · Press OK to fill the screen</string>
   <string name="protocol_version">Protocol version %1$d</string>
   <string name="stats_mirroring">Mirroring</string>
   <string name="stats_mirroring_value">%1$s, reconnects %2$d</string>
   <string name="stats_picture">Picture</string>
-  <string name="stats_picture_value">%1$d × %2$d, %3$.1f fps, %4$.1f Mbit/s</string>
+  <string name="stats_picture_value" translatable="false">%1$d × %2$d, %3$.1f fps, %4$.1f Mbit/s</string>
   <string name="stats_content">Content</string>
   <string name="stats_content_value">%1$s, TV at %2$d Hz</string>
-  <string name="stats_content_fps">%1$s fps</string>
+  <string name="stats_content_fps" translatable="false">%1$s fps</string>
   <string name="stats_content_varying">varying</string>
   <string name="stats_delay">Delay</string>
   <string name="stats_delay_value">%1$s behind the phone</string>
@@ -29,7 +33,7 @@
   <string name="stats_sound_off">none</string>
   <string name="stats_sound_gaps">Sound gaps</string>
   <string name="stats_sound_gaps_value">dropped %1$d, skipped %2$s, restarts %3$d</string>
-  <string name="stats_ms">%1$d ms</string>
-  <string name="stats_signed_ms">%1$+d ms</string>
-  <string name="stats_unknown">–</string>
+  <string name="stats_ms" translatable="false">%1$d ms</string>
+  <string name="stats_signed_ms" translatable="false">%1$+d ms</string>
+  <string name="stats_unknown" translatable="false">–</string>
 </resources>

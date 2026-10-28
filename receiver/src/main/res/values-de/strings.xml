@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="idle_waiting">Warte auf ein Handy oder Tablet…</string>
+  <string name="idle_device_name">Dieser Fernseher: %1$s</string>
+  <string name="idle_address">Adresse: %1$s</string>
+  <string name="idle_last_session_ended">Letzte Verbindung beendet: %1$s</string>
+  <string name="connected_waiting_for_video">Mit %1$s verbunden, warte auf das Bild…</string>
+  <string name="error_local_network_denied">Beamline braucht Zugriff auf dein lokales Netzwerk, um Handys und Tablets zu empfangen. Erlaube ihn in den App-Einstellungen.</string>
+  <string name="end_sender_silent">10 Sekunden lang kam nichts vom Handy.</string>
+  <string name="end_screen_not_ready">der Bildschirm des Fernsehers war nicht bereit.</string>
+  <string name="end_connection_lost">die Verbindung ist abgebrochen.</string>
+  <string name="end_failed">die Wiedergabe ist fehlgeschlagen.</string>
+  <string name="hint_fill">Bildschirm gefüllt · OK zeigt das ganze Bild</string>
+  <string name="hint_fit">Ganzes Bild · OK füllt den Bildschirm</string>
+  <string name="protocol_version">Protokollversion %1$d</string>
+  <string name="stats_mirroring">Spiegelung</string>
+  <string name="stats_mirroring_value">%1$s, Neuverbindungen %2$d</string>
+  <string name="stats_picture">Bild</string>
+  <string name="stats_content">Inhalt</string>
+  <string name="stats_content_value">%1$s, Fernseher auf %2$d Hz</string>
+  <string name="stats_content_varying">wechselnd</string>
+  <string name="stats_delay">Verzögerung</string>
+  <string name="stats_delay_value">%1$s hinter dem Handy</string>
+  <string name="stats_wifi">WLAN</string>
+  <string name="stats_wifi_value">Ping %1$s, Jitter %2$s, höchster %3$s</string>
+  <string name="stats_frames">Frames</string>
+  <string name="stats_frames_value">zu spät %1$d, verworfen %2$d</string>
+  <string name="stats_sound">Ton</string>
+  <string name="stats_sound_value">Puffer %1$s, Versatz %2$s</string>
+  <string name="stats_sound_off">keiner</string>
+  <string name="stats_sound_gaps">Tonlücken</string>
+  <string name="stats_sound_gaps_value">verworfen %1$d, übersprungen %2$s, Neustarts %3$d</string>
+</resources>

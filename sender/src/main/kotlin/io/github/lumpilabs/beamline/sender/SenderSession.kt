@@ -114,7 +114,7 @@ class SenderSession(
         runLink()
       } catch (e: RuntimeException) {
         Log.w(TAG, "Session failed", e)
-        stop(e.message ?: e.javaClass.simpleName)
+        stop(appContext.getString(R.string.error_unexpected, e.message ?: e.javaClass.simpleName))
       }
     }
   }
@@ -158,9 +158,10 @@ class SenderSession(
         connect()
       } catch (e: IOException) {
         if (!connectedOnce) {
-          stop(e.message ?: e.javaClass.simpleName)
+          Log.i(TAG, "Connecting failed: ${e.message}")
+          stop(connectFailure(e))
         } else if (SystemClock.elapsedRealtime() - lostAtMs > RECONNECT_WINDOW_MS) {
-          stop("Connection to the TV lost")
+          stop(appContext.getString(R.string.error_connection_lost, target.name))
         } else {
           Log.i(TAG, "Reconnect failed: ${e.message}")
           Thread.sleep(RETRY_INTERVAL_MS)
@@ -204,7 +205,7 @@ class SenderSession(
       writer.write(ControlCodec.toFrame(hello))
       val welcome = when (val reply = readControlMessage(reader)) {
         is Welcome -> reply
-        is Bye -> throw IOException(if (reply.reason == "busy") "The TV is busy with another device" else reply.reason)
+        is Bye -> throw TvDeclined(reply.reason)
         else -> throw ProtocolException("The TV didn't answer the handshake")
       }
       socket.soTimeout = LINK_TIMEOUT_MS
@@ -217,6 +218,18 @@ class SenderSession(
       connectingSocket = null
     }
   }
+
+  /** Why the first connection failed, in words for the user rather than the system's. */
+  private fun connectFailure(e: IOException): String =
+    when {
+      e is TvDeclined && e.reason == "busy" -> appContext.getString(R.string.error_tv_busy, target.name)
+      e is TvDeclined -> appContext.getString(R.string.error_tv_declined, target.name, e.reason)
+      e is ProtocolException -> appContext.getString(R.string.error_not_beamline, target.name)
+      else -> appContext.getString(R.string.error_unreachable, target.name)
+    }
+
+  /** The TV answered the handshake with `bye`. */
+  private class TvDeclined(val reason: String) : IOException("The TV declined: $reason")
 
   private fun readControlMessage(reader: FrameReader): Control? {
     val frame = reader.read() ?: return null
@@ -404,7 +417,7 @@ class SenderSession(
 
     override fun onError(error: Exception) {
       Log.w(TAG, "Encoder failed", error)
-      stop(error.message ?: "Encoder error")
+      stop(appContext.getString(R.string.error_encoder))
     }
   }
 

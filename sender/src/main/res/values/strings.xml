@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-  <string name="app_name">Beamline</string>
+  <string name="app_name" translatable="false">Beamline</string>
   <string name="protocol_version">Protocol version %1$d</string>
   <string name="status_idle">Not mirroring</string>
   <string name="status_connecting">Connecting to %1$s…</string>
@@ -16,6 +16,13 @@
   <string name="local_network_needed">Beamline needs access to your local network to find and reach the TV. Allow it in the app settings.</string>
   <string name="sound_needed">For sound on the TV, allow the audio permission in the app settings. Beamline only captures what apps play, never the microphone.</string>
   <string name="error_capture_denied">Screen capture wasn\'t allowed.</string>
+  <string name="error_unreachable">Couldn\'t reach %1$s. Is Beamline open on the TV, and are both on the same Wi-Fi?</string>
+  <string name="error_tv_busy">%1$s is showing another device.</string>
+  <string name="error_tv_declined">%1$s turned the connection down: %2$s</string>
+  <string name="error_not_beamline">%1$s didn\'t answer like a Beamline TV.</string>
+  <string name="error_connection_lost">Lost the connection to %1$s.</string>
+  <string name="error_encoder">The phone\'s video encoder stopped working.</string>
+  <string name="error_unexpected">Something went wrong: %1$s</string>
   <string name="add_tile_explanation">Start and stop mirroring with one tap from Quick Settings, next to Smart View.</string>
   <string name="add_tile">Add to Quick Settings</string>
   <string name="keep_awake">Keep the phone awake while mirroring</string>
