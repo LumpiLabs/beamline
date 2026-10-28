@@ -18,6 +18,7 @@ import io.github.lumpilabs.beamline.protocol.StreamConfig
 import io.github.lumpilabs.beamline.protocol.VideoSize
 import io.github.lumpilabs.beamline.protocol.Welcome
 import java.io.File
+import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.util.concurrent.ConcurrentHashMap
@@ -26,6 +27,7 @@ import kotlin.concurrent.thread
 import kotlin.system.exitProcess
 
 private const val USAGE = "Usage: test-sender <host> [port] [seconds] [fps] [sound.ogg]"
+private const val SENDER_ID = "beamline-test-sender"
 
 /**
  * Streams a test pattern to a Beamline TV, for testing the TV app without a phone. An Ogg Opus
@@ -57,7 +59,9 @@ fun main(args: Array<String>) {
     val reader = FrameReader(socket.getInputStream())
 
     val audioCodecs = if (sound != null) listOf(Codecs.OPUS) else emptyList()
-    writer.write(ControlCodec.toFrame(Hello(listOf(Protocol.VERSION), "Beamline test sender", listOf(Codecs.H264), audioCodecs)))
+    // A fixed sender id: a second run replaces the first one on the TV, like a reconnecting phone.
+    val hello = Hello(listOf(Protocol.VERSION), "Beamline test sender", listOf(Codecs.H264), audioCodecs, SENDER_ID)
+    writer.write(ControlCodec.toFrame(hello))
     val welcome = when (val reply = reader.read()?.let { ControlCodec.decode(it.body) }) {
       is Welcome -> reply
       is Bye -> {
@@ -94,23 +98,28 @@ fun main(args: Array<String>) {
     val audio = sound?.takeIf { Codecs.OPUS in welcome.audioCodecs }?.let { opus ->
       writer.write(ControlCodec.toFrame(AudioConfig(Codecs.OPUS, 48_000, opus.channels)))
       writer.write(Frame(FrameType.AUDIO, FrameFlags.CODEC_CONFIG, 0, opus.header))
-      thread(isDaemon = true, name = "audio") { sendSound(writer, opus, start, seconds) }
+      thread(isDaemon = true, name = "audio") { runCatching { sendSound(writer, opus, start, seconds) } }
     }
     if (sound != null && audio == null) println("The TV doesn't take Opus sound; sending video only")
 
     val total = seconds * fps
-    for (i in 0 until total) {
-      // Restart the clip at its keyframe when the TV asks for one or the clip loops.
-      val clipIndex = if (keyframeRequests.getAndSet(0) > 0) 0 else i % clip.frames.size
-      val encoded = clip.frames[clipIndex]
-      val ptsUs = i * 1_000_000L / fps
-      writer.write(Frame(FrameType.VIDEO, if (encoded.keyframe) FrameFlags.KEYFRAME else 0, ptsUs, encoded.data))
-      if (i % fps == 0) {
-        val id = i / fps
-        pingSentAt[id] = System.nanoTime()
-        writer.write(ControlCodec.toFrame(Ping(id, ptsUs)))
+    try {
+      for (i in 0 until total) {
+        // Restart the clip at its keyframe when the TV asks for one or the clip loops.
+        val clipIndex = if (keyframeRequests.getAndSet(0) > 0) 0 else i % clip.frames.size
+        val encoded = clip.frames[clipIndex]
+        val ptsUs = i * 1_000_000L / fps
+        writer.write(Frame(FrameType.VIDEO, if (encoded.keyframe) FrameFlags.KEYFRAME else 0, ptsUs, encoded.data))
+        if (i % fps == 0) {
+          val id = i / fps
+          pingSentAt[id] = System.nanoTime()
+          writer.write(ControlCodec.toFrame(Ping(id, ptsUs)))
+        }
+        sleepUntil(start + (i + 1) * 1_000_000_000L / fps)
       }
-      sleepUntil(start + (i + 1) * 1_000_000_000L / fps)
+    } catch (e: IOException) {
+      println("The TV closed the connection after ${(System.nanoTime() - start) / 1_000_000} ms: ${e.message}")
+      exitProcess(1)
     }
     audio?.join()
     writer.write(ControlCodec.toFrame(Bye("test finished")))

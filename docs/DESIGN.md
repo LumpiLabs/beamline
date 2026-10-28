@@ -81,7 +81,8 @@ control messages.
 
 CBOR two-element arrays of the form `["<name>", {...}]`, the body a map with snake_case
 field names; unknown fields are ignored and unknown message names are skipped, so newer
-peers can add both. Messages: `hello` (versions, device name, capabilities),
+peers can add both. Messages: `hello` (versions, device name, capabilities, and a
+`sender_id` that stays the same for one install of the sender app),
 `welcome` (chosen version and stream limits), `stream` (codec, width, height, fps,
 rotation, sent before each new video config), `request_keyframe`, `bitrate_hint`,
 `ping`/`pong` (round-trip time and clock offset), `stats`, and `bye` (with reason).
@@ -124,6 +125,15 @@ paired phones or to ask every time.
   landscape phone).
 - **Keep-alive:** some encoders (Samsung's) ignore `KEY_REPEAT_PREVIOUS_FRAME_AFTER`
   and send nothing while the screen is still, so the phone sends a `ping` every second.
+- **Reconnect:** the TV answers every `ping`, so 5 seconds without anything from it
+  means the connection is gone, even when the socket hasn't noticed (a Wi-Fi drop
+  often looks like silence, not an error). Capture keeps running and the phone tries
+  again every second for up to a minute, dropping frames meanwhile; the app and the
+  tile show "Reconnecting…". Once back, it resends `stream`, both codec configs and a
+  keyframe, so the picture continues at the next keyframe. Connections are bound to the
+  Wi-Fi network: otherwise Android sends them over mobile data while Wi-Fi is down,
+  where each attempt hangs until it times out. Without Wi-Fi the phone waits for it
+  instead. A TV on the phone's own hotspot is reached without binding.
 - **Rotation:** on an orientation change the encoder is reconfigured, and a new
   `stream` message plus codec config are sent before the next frame.
 - **Audio:** `AudioPlaybackCaptureConfiguration` (usages media, game and unknown),
@@ -165,7 +175,10 @@ paired phones or to ask every time.
   status, a full-screen player, a statistics overlay (bitrate, fps, latency, dropped
   frames) on a remote button, and settings that work with the D-pad.
 - **Sessions:** one active stream at a time. A second sender gets a "TV is busy"
-  answer, or replaces the current stream if the user allows that in settings.
+  answer, or replaces the current stream if the user allows that in settings. The TV
+  ends a session after 10 seconds without data. A phone that comes back sooner (same
+  `sender_id`) replaces its old connection right away instead of being turned away as
+  busy, and the last picture stays on screen until the new one arrives.
 - **AirPlay (M4):** UxPlay's server runs alongside the Beamline receiver and renders
   into the same player screen, so an iPad and an Android phone use the same TV app.
 
@@ -186,6 +199,10 @@ Planned for M3:
   (decode queue length, late frames).
 - `ping`/`pong` every second already measures round-trip time; the statistics overlay
   will show it with the end-to-end delay.
+- After a burst of sound (a reconnect while the TV is still setting up its decoder, or
+  a refresh-rate switch), the TV's sound buffer can stay near its 600 ms limit instead
+  of 300 ms until the next restart. Sync is unaffected, but the delay is higher and
+  there is less room before chunks are dropped. The buffer should shrink back.
 
 ## Known limits
 

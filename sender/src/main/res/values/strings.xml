@@ -5,6 +5,7 @@
   <string name="status_idle">Not mirroring</string>
   <string name="status_connecting">Connecting to %1$s…</string>
   <string name="status_mirroring">Mirroring to %1$s (%2$d × %3$d)</string>
+  <string name="status_reconnecting">Connection lost, reconnecting to %1$s…</string>
   <string name="status_failed">Stopped: %1$s</string>
   <string name="stop">Stop</string>
   <string name="tvs_on_network">TVs on your network</string>
@@ -18,6 +19,7 @@
   <string name="add_tile_explanation">Start and stop mirroring with one tap from Quick Settings, next to Smart View.</string>
   <string name="add_tile">Add to Quick Settings</string>
   <string name="tile_connecting">Connecting…</string>
+  <string name="tile_reconnecting">Reconnecting…</string>
   <string name="tile_pick_tv">Tap to pick a TV</string>
   <string name="notification_channel">Mirroring</string>
   <string name="notification_title">Mirroring to %1$s</string>

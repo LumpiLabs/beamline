@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.core.content.edit
 import io.github.lumpilabs.beamline.protocol.Protocol
+import java.util.UUID
 
 /** Small persistent settings of the phone app. Excluded from backups, see data_extraction_rules. */
 object SenderPrefs {
@@ -12,6 +13,7 @@ object SenderPrefs {
   private const val LAST_HOST = "last_receiver_host"
   private const val LAST_PORT = "last_receiver_port"
   private const val TILE_ADDED = "tile_added"
+  private const val SENDER_ID = "sender_id"
 
   /** The TV mirrored to most recently; the Quick Settings tile mirrors to it. */
   fun lastReceiver(context: Context): ReceiverAddress? {
@@ -35,6 +37,16 @@ object SenderPrefs {
   fun isTileAdded(context: Context): Boolean = prefs(context).getBoolean(TILE_ADDED, false)
 
   fun setTileAdded(context: Context) = prefs(context).edit { putBoolean(TILE_ADDED, true) }
+
+  /** Random id the TV uses to recognize this phone when it reconnects after a lost connection. */
+  @Synchronized
+  fun senderId(context: Context): String {
+    val prefs = prefs(context)
+    prefs.getString(SENDER_ID, null)?.let { return it }
+    val id = UUID.randomUUID().toString()
+    prefs.edit { putString(SENDER_ID, id) }
+    return id
+  }
 
   private fun prefs(context: Context): SharedPreferences =
     context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)

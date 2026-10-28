@@ -5,8 +5,8 @@ iPhones and Macs (over AirPlay) and Android phones (with the Beamline sender app
 No ads, accounts, subscriptions or tracking.
 
 > **Status:** in development, nothing to install yet. A Galaxy S26+ mirrors smoothly
-> with sound to a Fire TV Stick 4K Max; the Pixel 8, the iPad (AirPlay) and laptops are
-> still to come. See the [design](docs/DESIGN.md) and [roadmap](docs/ROADMAP.md).
+> with sound to a Fire TV Stick 4K Max and picks up again by itself after a Wi-Fi drop;
+> the Pixel 8, the iPad (AirPlay) and laptops are still to come. See the [design](docs/DESIGN.md) and [roadmap](docs/ROADMAP.md).
 
 ## How it works
 

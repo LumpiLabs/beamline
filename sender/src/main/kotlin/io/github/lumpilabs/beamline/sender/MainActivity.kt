@@ -216,10 +216,11 @@ private fun StatusCard(status: MirrorStatus, onStop: () -> Unit) {
         is MirrorStatus.Connecting -> stringResource(R.string.status_connecting, status.receiver)
         is MirrorStatus.Mirroring ->
           stringResource(R.string.status_mirroring, status.receiver, status.size.width, status.size.height)
+        is MirrorStatus.Reconnecting -> stringResource(R.string.status_reconnecting, status.receiver)
         is MirrorStatus.Failed -> stringResource(R.string.status_failed, status.message)
       }
       Text(text, modifier = Modifier.weight(1f))
-      if (status is MirrorStatus.Connecting || status is MirrorStatus.Mirroring) {
+      if (status.isActive) {
         OutlinedButton(onClick = onStop) { Text(stringResource(R.string.stop)) }
       }
     }

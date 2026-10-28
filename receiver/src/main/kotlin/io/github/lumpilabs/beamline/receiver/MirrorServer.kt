@@ -29,11 +29,14 @@ import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.net.SocketTimeoutException
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
 
 /**
  * Accepts one sender at a time over TCP and plays its video on the surface from [videoSurface].
- * A second sender gets a `bye` with reason "busy".
+ * A second sender gets a `bye` with reason "busy", unless it is the same sender reconnecting
+ * after losing its connection: then the new connection replaces the old one.
  */
 class MirrorServer(
   private val tvName: String,
@@ -53,7 +56,10 @@ class MirrorServer(
 
   @Volatile private var serverSocket: ServerSocket? = null
 
-  @Volatile private var activeSocket: Socket? = null
+  private val lock = Any()
+
+  /** The session playing on the screen. Guarded by [lock]. */
+  private var active: Session? = null
 
   /** Starts listening on [Protocol.DEFAULT_PORT], or any free port if that one is taken. */
   fun start(): Int {
@@ -71,7 +77,7 @@ class MirrorServer(
   fun stop() {
     runCatching { serverSocket?.close() }
     serverSocket = null
-    runCatching { activeSocket?.close() }
+    synchronized(lock) { active }?.close()
   }
 
   private fun acceptLoop(server: ServerSocket) {
@@ -81,59 +87,101 @@ class MirrorServer(
       } catch (_: IOException) {
         break
       }
-      if (activeSocket != null) {
-        thread(name = "beamline-reject", isDaemon = true) { rejectBusy(client) }
-        continue
-      }
-      activeSocket = client
-      thread(name = "beamline-session", isDaemon = true) {
-        var reason: String? = null
-        try {
-          Session(client).run()
-        } catch (e: IOException) {
-          reason = e.message
-          Log.i(TAG, "Session ended: ${e.message}")
-        } catch (e: RuntimeException) {
-          reason = e.message
-          Log.w(TAG, "Session failed", e)
-        } finally {
-          runCatching { client.close() }
-          activeSocket = null
-          events.onDisconnected(reason)
-        }
-      }
+      thread(name = "beamline-session", isDaemon = true) { Session(client).run() }
     }
   }
 
-  private fun rejectBusy(client: Socket) {
-    client.use {
-      runCatching { FrameWriter(it.getOutputStream()).write(ControlCodec.toFrame(Bye("busy"))) }
+  /**
+   * Makes [session] the one on screen. A session from the same sender as the active one replaces
+   * it; the old one is torn down first so its decoder lets go of the screen. Returns false when the
+   * TV is busy with another sender.
+   */
+  private fun claim(session: Session, senderId: String?): Boolean {
+    val previous = synchronized(lock) {
+      val current = active
+      if (current != null && (senderId == null || current.senderId != senderId)) return false
+      active = session
+      current
     }
+    if (previous != null) {
+      Log.i(TAG, "The sender reconnected, replacing its old connection")
+      previous.close()
+      previous.awaitEnd()
+    }
+    return true
   }
+
+  /** Returns true when [session] was still the active one, so its end means the screen goes idle. */
+  private fun release(session: Session): Boolean =
+    synchronized(lock) {
+      if (active !== session) return false
+      active = null
+      true
+    }
 
   private inner class Session(private val socket: Socket) : VideoDecoder.Listener {
     private lateinit var writer: FrameWriter
+    private lateinit var reader: FrameReader
     private var decoder: VideoDecoder? = null
     private var audio: AudioPlayer? = null
     private var config: StreamConfig? = null
     private val clock = PlaybackClock { audio?.audibleOffsetNs }
+    private val ended = CountDownLatch(1)
+
+    @Volatile var senderId: String? = null
+      private set
 
     fun run() {
+      var claimed = false
+      var reason: String? = null
+      try {
+        val hello = handshake()
+        val version = Protocol.negotiate(hello.versions)
+        if (version == null) {
+          send(Bye("unsupported protocol version"))
+          return
+        }
+        claimed = claim(this, hello.senderId)
+        if (!claimed) {
+          send(Bye("busy"))
+          return
+        }
+        send(Welcome(version, tvName, MAX_SIZE.width, MAX_SIZE.height, MAX_FPS, listOf(Codecs.OPUS)))
+        events.onConnected(hello.name)
+        stream()
+      } catch (e: IOException) {
+        reason = e.message
+        Log.i(TAG, "Session ended: ${e.message}")
+      } catch (e: RuntimeException) {
+        reason = e.message
+        Log.w(TAG, "Session failed", e)
+      } finally {
+        runCatching { socket.close() }
+        if (claimed && release(this)) events.onDisconnected(reason)
+        ended.countDown()
+      }
+    }
+
+    fun close() {
+      runCatching { socket.close() }
+    }
+
+    fun awaitEnd() {
+      ended.await(REPLACE_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+    }
+
+    private fun handshake(): Hello {
       socket.tcpNoDelay = true
       socket.soTimeout = HANDSHAKE_TIMEOUT_MS
-      val reader = FrameReader(socket.getInputStream())
       writer = FrameWriter(socket.getOutputStream())
-
+      reader = FrameReader(socket.getInputStream())
       val hello = reader.read()?.let(::controlOrNull) as? Hello
         ?: throw ProtocolException("The sender didn't start with hello")
-      val version = Protocol.negotiate(hello.versions)
-      if (version == null) {
-        send(Bye("unsupported protocol version"))
-        return
-      }
-      send(Welcome(version, tvName, MAX_SIZE.width, MAX_SIZE.height, MAX_FPS, listOf(Codecs.OPUS)))
-      events.onConnected(hello.name)
+      senderId = hello.senderId
+      return hello
+    }
 
+    private fun stream() {
       // The sender pings every second even on a still screen, so silence means the link is gone.
       socket.soTimeout = STREAM_TIMEOUT_MS
       try {
@@ -252,6 +300,9 @@ class MirrorServer(
     private const val TAG = "BeamlineServer"
     private const val HANDSHAKE_TIMEOUT_MS = 5_000
     private const val STREAM_TIMEOUT_MS = 10_000
+
+    /** How long a reconnecting sender waits for its old session to let go of the screen. */
+    private const val REPLACE_TIMEOUT_MS = 3_000L
     const val MAX_FPS = 60
 
     /** Full HD height; wider than 16:9 so a 20:9 phone in landscape keeps full detail when filled. */

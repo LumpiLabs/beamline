@@ -21,6 +21,12 @@ data class Hello(
   val name: String,
   @SerialName("video_codecs") val videoCodecs: List<String>,
   @SerialName("audio_codecs") val audioCodecs: List<String>,
+  /**
+   * Random id that stays the same for one sender install. When the receiver still holds a
+   * connection from the same sender (lost without a `bye`), the new one replaces it instead of
+   * being turned away as busy.
+   */
+  @SerialName("sender_id") val senderId: String? = null,
 ) : Control
 
 /** Receiver to sender, answer to [Hello] with the chosen version and stream limits. */

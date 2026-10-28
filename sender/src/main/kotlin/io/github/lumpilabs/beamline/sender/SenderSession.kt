@@ -6,6 +6,10 @@ import android.content.pm.PackageManager
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.media.projection.MediaProjection
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
@@ -39,12 +43,23 @@ import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
 import kotlin.math.min
 
 /**
  * One mirroring session: connects to [target], captures the screen through [projection] and
- * streams H.264 until either side stops. Capture and encoder changes run on one handler thread.
+ * streams H.264 and Opus until either side stops. Capture and encoder changes run on one handler
+ * thread.
+ *
+ * A lost connection doesn't end the session: capture goes on while the link thread reconnects for
+ * up to [RECONNECT_WINDOW_MS], and the stream continues at the next keyframe. The TV answers every
+ * ping, so [LINK_TIMEOUT_MS] without data from it means the link is gone even when the socket
+ * hasn't noticed, for example after a Wi-Fi drop.
+ *
+ * Connections go over Wi-Fi when the phone has it. Otherwise Android may send them over mobile
+ * data, where the TV can't be reached, and while Wi-Fi is down each attempt would hang until it
+ * times out instead of going through the moment Wi-Fi is back.
  */
 class SenderSession(
   context: Context,
@@ -54,34 +69,49 @@ class SenderSession(
 ) {
   private val appContext = context.applicationContext
   private val displayManager = appContext.getSystemService(DisplayManager::class.java)
+  private val connectivity = appContext.getSystemService(ConnectivityManager::class.java)
   private val handlerThread = HandlerThread("beamline-sender").also { it.start() }
   private val handler = Handler(handlerThread.looper)
   private val stopped = AtomicBoolean(false)
+  private val senderId = SenderPrefs.senderId(appContext)
 
-  private var socket: Socket? = null
-  private lateinit var writer: FrameWriter
-  private lateinit var reader: FrameReader
-  private lateinit var welcome: Welcome
+  /** The connection frames go to; null while (re)connecting, so frames from then are dropped. */
+  private val link = AtomicReference<Link?>(null)
+
+  @Volatile private var connectingSocket: Socket? = null
+
+  /** The phone's Wi-Fi (or Ethernet) network while it has one. */
+  @Volatile private var localNetwork: Network? = null
+
+  /**
+   * The TV was last reached over [localNetwork], so without it reconnecting waits for Wi-Fi to come
+   * back. A TV on the phone's own hotspot is reached without it. Touched only on the link thread.
+   */
+  private var needsLocalNetwork = false
 
   // Touched only on the handler thread.
+  private lateinit var welcome: Welcome
   private var virtualDisplay: VirtualDisplay? = null
   private var encoder: ScreenEncoder? = null
   private var currentSize: VideoSize? = null
+  private var streamConfig: StreamConfig? = null
   private var capturedContentSize: VideoSize? = null
   private var audio: AudioCapture? = null
 
   @Volatile private var lastCodecConfig: ByteArray? = null
 
+  @Volatile private var lastAudioConfig: ByteArray? = null
+
+  private class Link(val socket: Socket, val writer: FrameWriter, val reader: FrameReader, val welcome: Welcome)
+
   fun start() {
     MirrorState.set(appContext, MirrorStatus.Connecting(target.name))
-    thread(name = "beamline-connect", isDaemon = true) {
+    // The callback reports networks a moment later; the first connection shouldn't wait for it.
+    localNetwork = connectivity.activeNetwork?.takeIf { isLocal(connectivity.getNetworkCapabilities(it)) }
+    connectivity.registerNetworkCallback(LOCAL_NETWORKS, networkCallback)
+    thread(name = "beamline-link", isDaemon = true) {
       try {
-        connect()
-        handler.post { startCapture() }
-        readControl()
-        stop(null)
-      } catch (e: IOException) {
-        stop(e.message ?: e.javaClass.simpleName)
+        runLink()
       } catch (e: RuntimeException) {
         Log.w(TAG, "Session failed", e)
         stop(e.message ?: e.javaClass.simpleName)
@@ -93,7 +123,17 @@ class SenderSession(
   fun stop(error: String?) {
     if (stopped.getAndSet(true)) return
     MirrorState.set(appContext, if (error != null) MirrorStatus.Failed(error) else MirrorStatus.Idle)
-    runCatching { writer.write(ControlCodec.toFrame(Bye(if (error != null) "error" else "stopped"))) }
+    runCatching { connectivity.unregisterNetworkCallback(networkCallback) }
+    val last = link.getAndSet(null)
+    val connecting = connectingSocket
+    // Writing can block on a dead connection, so the goodbye goes out on its own thread.
+    thread(name = "beamline-bye", isDaemon = true) {
+      last?.let {
+        runCatching { it.writer.write(ControlCodec.toFrame(Bye(if (error != null) "error" else "stopped"))) }
+        runCatching { it.socket.close() }
+      }
+      runCatching { connecting?.close() }
+    }
     handler.post {
       displayManager.unregisterDisplayListener(displayListener)
       audio?.stop()
@@ -104,37 +144,94 @@ class SenderSession(
       virtualDisplay = null
       projection.unregisterCallback(projectionCallback)
       runCatching { projection.stop() }
-      runCatching { socket?.close() }
       handlerThread.quitSafely()
       onEnded()
     }
   }
 
-  private fun connect() {
-    val newSocket = Socket()
-    socket = newSocket
-    newSocket.tcpNoDelay = true
-    newSocket.connect(InetSocketAddress(target.host, target.port), CONNECT_TIMEOUT_MS)
-    newSocket.soTimeout = CONNECT_TIMEOUT_MS
-    writer = FrameWriter(newSocket.getOutputStream())
-    reader = FrameReader(newSocket.getInputStream())
-    send(Hello(listOf(Protocol.VERSION), deviceName(), listOf(Codecs.H264), listOf(Codecs.OPUS)))
-    welcome = when (val reply = readControlMessage()) {
-      is Welcome -> reply
-      is Bye -> throw IOException(if (reply.reason == "busy") "The TV is busy with another device" else reply.reason)
-      else -> throw ProtocolException("The TV didn't answer the handshake")
+  /** Connects, reads the TV's messages until the link breaks, and reconnects until the session ends. */
+  private fun runLink() {
+    var connectedOnce = false
+    var lostAtMs = 0L
+    while (!stopped.get()) {
+      val current = try {
+        connect()
+      } catch (e: IOException) {
+        if (!connectedOnce) {
+          stop(e.message ?: e.javaClass.simpleName)
+        } else if (SystemClock.elapsedRealtime() - lostAtMs > RECONNECT_WINDOW_MS) {
+          stop("Connection to the TV lost")
+        } else {
+          Log.i(TAG, "Reconnect failed: ${e.message}")
+          Thread.sleep(RETRY_INTERVAL_MS)
+          continue
+        }
+        return
+      }
+      link.set(current)
+      if (stopped.get()) {
+        runCatching { current.socket.close() }
+        return
+      }
+      if (connectedOnce) Log.i(TAG, "Reconnected after ${SystemClock.elapsedRealtime() - lostAtMs} ms")
+      connectedOnce = true
+      handler.post { attach(current) }
+      val tvSaidBye = readControl(current)
+      link.compareAndSet(current, null)
+      runCatching { current.socket.close() }
+      if (tvSaidBye || stopped.get()) {
+        stop(null)
+        return
+      }
+      lostAtMs = SystemClock.elapsedRealtime()
+      MirrorState.set(appContext, MirrorStatus.Reconnecting(target.name))
     }
-    newSocket.soTimeout = 0
   }
 
-  private fun readControlMessage(): Control? {
+  private fun connect(): Link {
+    val network = localNetwork
+    if (network == null && needsLocalNetwork) throw IOException("No Wi-Fi")
+    val socket = Socket()
+    connectingSocket = socket
+    try {
+      network?.bindSocket(socket)
+      socket.tcpNoDelay = true
+      socket.connect(InetSocketAddress(target.host, target.port), CONNECT_TIMEOUT_MS)
+      socket.soTimeout = CONNECT_TIMEOUT_MS
+      val writer = FrameWriter(socket.getOutputStream())
+      val reader = FrameReader(socket.getInputStream())
+      val hello = Hello(listOf(Protocol.VERSION), deviceName(), listOf(Codecs.H264), listOf(Codecs.OPUS), senderId)
+      writer.write(ControlCodec.toFrame(hello))
+      val welcome = when (val reply = readControlMessage(reader)) {
+        is Welcome -> reply
+        is Bye -> throw IOException(if (reply.reason == "busy") "The TV is busy with another device" else reply.reason)
+        else -> throw ProtocolException("The TV didn't answer the handshake")
+      }
+      socket.soTimeout = LINK_TIMEOUT_MS
+      needsLocalNetwork = network != null
+      return Link(socket, writer, reader, welcome)
+    } catch (e: IOException) {
+      runCatching { socket.close() }
+      throw e
+    } finally {
+      connectingSocket = null
+    }
+  }
+
+  private fun readControlMessage(reader: FrameReader): Control? {
     val frame = reader.read() ?: return null
     return if (frame.type == FrameType.CONTROL) ControlCodec.decode(frame.body) else null
   }
 
-  private fun readControl() {
+  /** Handles the TV's messages. Returns true when the TV said bye, false when the link broke. */
+  private fun readControl(current: Link): Boolean {
     while (!stopped.get()) {
-      val frame = reader.read() ?: return
+      val frame = try {
+        current.reader.read()
+      } catch (e: IOException) {
+        if (!stopped.get()) Log.i(TAG, "Connection lost: ${e.message}")
+        return false
+      } ?: return false
       if (frame.type != FrameType.CONTROL) continue
       val message = try {
         ControlCodec.decode(frame.body)
@@ -145,9 +242,34 @@ class SenderSession(
         is RequestKeyframe -> handler.post { sendKeyframe() }
         is Ping -> send(Pong(message.id, message.timeUs, nowUs()))
         is Pong -> if (message.id % 10 == 0) Log.i(TAG, "Round trip ${(nowUs() - message.pingTimeUs) / 1000} ms")
-        is Bye -> return
+        is Bye -> return true
         else -> Unit
       }
+    }
+    return true
+  }
+
+  /** Starts capture on the first connection; after a reconnect, tells the TV what is coming. */
+  private fun attach(current: Link) {
+    if (stopped.get() || link.get() !== current) return
+    welcome = current.welcome
+    if (virtualDisplay == null) {
+      startCapture()
+      return
+    }
+    val size = currentSize
+    if (size == null || targetSize() != size) {
+      onSourceChanged()
+    } else {
+      streamConfig?.let(::send)
+      sendKeyframe()
+      MirrorState.set(appContext, MirrorStatus.Mirroring(target.name, size))
+    }
+    if (audio == null) {
+      startAudio()
+    } else if (Codecs.OPUS in welcome.audioCodecs) {
+      send(AudioConfig(Codecs.OPUS, AudioCapture.SAMPLE_RATE, AudioCapture.CHANNELS))
+      lastAudioConfig?.let { write(Frame(FrameType.AUDIO, FrameFlags.CODEC_CONFIG, 0, it)) }
     }
   }
 
@@ -199,12 +321,7 @@ class SenderSession(
 
     override fun run() {
       if (stopped.get()) return
-      try {
-        send(Ping(nextId++, nowUs()))
-      } catch (_: IOException) {
-        stop("Connection to the TV lost")
-        return
-      }
+      send(Ping(nextId++, nowUs()))
       handler.postDelayed(this, PING_INTERVAL_MS)
     }
   }
@@ -213,10 +330,12 @@ class SenderSession(
 
   private fun startEncoder(size: VideoSize): ScreenEncoder {
     val fps = min(welcome.maxFps, MAX_FPS)
-    send(StreamConfig(Codecs.H264, size.width, size.height, fps))
+    val config = StreamConfig(Codecs.H264, size.width, size.height, fps)
+    send(config)
     val newEncoder = ScreenEncoder(size, fps, ScreenEncoder.bitrateFor(size, fps), encoderSink)
     encoder = newEncoder
     currentSize = size
+    streamConfig = config
     MirrorState.set(appContext, MirrorStatus.Mirroring(target.name, size))
     return newEncoder
   }
@@ -234,7 +353,7 @@ class SenderSession(
   }
 
   private fun sendKeyframe() {
-    lastCodecConfig?.let { writer.write(Frame(FrameType.VIDEO, FrameFlags.CODEC_CONFIG, 0, it)) }
+    lastCodecConfig?.let { write(Frame(FrameType.VIDEO, FrameFlags.CODEC_CONFIG, 0, it)) }
     encoder?.requestKeyframe()
   }
 
@@ -255,7 +374,19 @@ class SenderSession(
   private fun deviceName(): String =
     Settings.Global.getString(appContext.contentResolver, Settings.Global.DEVICE_NAME) ?: Build.MODEL
 
-  private fun send(message: Control) = writer.write(ControlCodec.toFrame(message))
+  private fun send(message: Control) = write(ControlCodec.toFrame(message))
+
+  /** Sends to the current connection. Without one (while reconnecting) the frame is dropped. */
+  private fun write(frame: Frame) {
+    val current = link.get() ?: return
+    try {
+      current.writer.write(frame)
+    } catch (_: IOException) {
+      // Closing wakes the link thread, which reconnects.
+      link.compareAndSet(current, null)
+      runCatching { current.socket.close() }
+    }
+  }
 
   private val encoderSink = object : ScreenEncoder.Sink {
     override fun onCodecConfig(data: ByteArray) {
@@ -271,18 +402,13 @@ class SenderSession(
       Log.w(TAG, "Encoder failed", error)
       stop(error.message ?: "Encoder error")
     }
-
-    private fun write(frame: Frame) {
-      try {
-        writer.write(frame)
-      } catch (e: IOException) {
-        stop(if (stopped.get()) null else "Connection to the TV lost")
-      }
-    }
   }
 
   private val audioSink = object : AudioCapture.Sink {
-    override fun onAudioConfig(data: ByteArray) = write(Frame(FrameType.AUDIO, FrameFlags.CODEC_CONFIG, 0, data))
+    override fun onAudioConfig(data: ByteArray) {
+      lastAudioConfig = data
+      write(Frame(FrameType.AUDIO, FrameFlags.CODEC_CONFIG, 0, data))
+    }
 
     override fun onAudioFrame(data: ByteArray, ptsUs: Long) = write(Frame(FrameType.AUDIO, 0, ptsUs, data))
 
@@ -291,14 +417,6 @@ class SenderSession(
       handler.post {
         audio?.stop()
         audio = null
-      }
-    }
-
-    private fun write(frame: Frame) {
-      try {
-        writer.write(frame)
-      } catch (_: IOException) {
-        stop(if (stopped.get()) null else "Connection to the TV lost")
       }
     }
   }
@@ -311,6 +429,16 @@ class SenderSession(
         capturedContentSize = VideoSize(width, height)
         onSourceChanged()
       }
+    }
+  }
+
+  private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+    override fun onAvailable(network: Network) {
+      localNetwork = network
+    }
+
+    override fun onLost(network: Network) {
+      if (localNetwork == network) localNetwork = null
     }
   }
 
@@ -328,6 +456,27 @@ class SenderSession(
     const val TAG = "BeamlineSender"
     const val CONNECT_TIMEOUT_MS = 5_000
     const val PING_INTERVAL_MS = 1_000L
+
+    /** No pong for this long means the connection is dead. */
+    const val LINK_TIMEOUT_MS = 5_000
+
+    /** How long the phone keeps trying to reach the TV again after losing the connection. */
+    const val RECONNECT_WINDOW_MS = 60_000L
+    const val RETRY_INTERVAL_MS = 1_000L
     const val MAX_FPS = 60
+
+    /** Wi-Fi and Ethernet, with or without internet access: the networks a TV can be on. */
+    val LOCAL_NETWORKS: NetworkRequest = NetworkRequest.Builder()
+      .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+      .addTransportType(NetworkCapabilities.TRANSPORT_ETHERNET)
+      .removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+      .build()
+
+    /** A VPN reports the transports under it, but connections to the TV shouldn't go through it. */
+    fun isLocal(capabilities: NetworkCapabilities?): Boolean =
+      capabilities != null &&
+        !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
+        (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+          capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET))
   }
 }

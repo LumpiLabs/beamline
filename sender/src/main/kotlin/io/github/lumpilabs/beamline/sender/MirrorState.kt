@@ -15,9 +15,12 @@ sealed interface MirrorStatus {
 
   data class Mirroring(val receiver: String, val size: VideoSize) : MirrorStatus
 
+  /** The connection was lost; capture goes on while the phone tries to reach the TV again. */
+  data class Reconnecting(val receiver: String) : MirrorStatus
+
   data class Failed(val message: String) : MirrorStatus
 
-  val isActive: Boolean get() = this is Connecting || this is Mirroring
+  val isActive: Boolean get() = this is Connecting || this is Mirroring || this is Reconnecting
 }
 
 /** Shared between the mirroring service, the UI and the Quick Settings tile. */

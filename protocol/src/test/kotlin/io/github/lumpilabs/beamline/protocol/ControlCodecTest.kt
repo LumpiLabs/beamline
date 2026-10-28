@@ -7,6 +7,7 @@ import kotlinx.serialization.cbor.Cbor
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertSame
 
 class ControlCodecTest {
@@ -14,6 +15,7 @@ class ControlCodecTest {
   fun roundTripsEveryMessage() {
     val messages = listOf(
       Hello(listOf(1), "Pixel 8", listOf(Codecs.H264, Codecs.HEVC), listOf(Codecs.OPUS)),
+      Hello(listOf(1), "Pixel 8", listOf(Codecs.H264), listOf(Codecs.OPUS), "6f1c2a"),
       Welcome(1, "Living room TV", 1920, 1080, 60),
       Welcome(1, "Living room TV", 1920, 1080, 60, listOf(Codecs.OPUS)),
       AudioConfig(Codecs.OPUS, 48_000, 2),
@@ -69,6 +71,12 @@ class ControlCodecTest {
     @SerialName("max_height") val maxHeight: Int,
     @SerialName("max_fps") val maxFps: Int,
   )
+
+  @Test
+  fun helloWithoutSenderIdLeavesTheFieldOut() {
+    val bytes = ControlCodec.encode(Hello(listOf(1), "Pixel 8", listOf(Codecs.H264), emptyList()))
+    assertFalse("sender_id" in bytes.decodeToString())
+  }
 
   @Test
   fun rejectsGarbage() {

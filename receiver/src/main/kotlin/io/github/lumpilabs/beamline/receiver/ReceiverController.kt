@@ -67,8 +67,11 @@ class ReceiverController(private val context: Context, private val tvName: Strin
     _fill.update { !it }
   }
 
+  /** A sender reconnecting after a lost connection keeps its picture on screen until new frames come. */
   override fun onConnected(senderName: String) {
-    _state.value = ReceiverState.Connected(senderName)
+    _state.update {
+      if (it is ReceiverState.Connected && it.senderName == senderName) it else ReceiverState.Connected(senderName)
+    }
   }
 
   override fun onVideoSize(size: VideoSize) {
