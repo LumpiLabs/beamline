@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- TV launcher banner, 320x180. The launcher rasterizes it once, so the size limit doesn't matter. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+  xmlns:tools="http://schemas.android.com/tools"
+  tools:ignore="VectorRaster"
+  android:width="320dp"
+  android:height="180dp"
+  android:viewportWidth="320"
+  android:viewportHeight="180">
+  <path
+    android:fillColor="#0E1A2B"
+    android:pathData="M0,0 h320 v180 h-320 z" />
+  <group
+    android:scaleX="1.5"
+    android:scaleY="1.5"
+    android:translateX="79"
+    android:translateY="9">
+    <path
+      android:fillColor="#3DD6F5"
+      android:pathData="M27,80 L50,49 L61,58 Z" />
+    <path
+      android:strokeColor="#FFFFFF"
+      android:strokeWidth="4"
+      android:strokeLineJoin="round"
+      android:pathData="M38,37 h36 a4,4 0 0 1 4,4 v22 a4,4 0 0 1 -4,4 h-36 a4,4 0 0 1 -4,-4 v-22 a4,4 0 0 1 4,-4 z" />
+    <path
+      android:strokeColor="#FFFFFF"
+      android:strokeWidth="4"
+      android:strokeLineCap="round"
+      android:pathData="M48,74 h16" />
+  </group>
+</vector>

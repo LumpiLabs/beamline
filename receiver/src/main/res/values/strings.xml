@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="app_name">Beamline</string>
+  <string name="idle_waiting">Waiting for a phone or tablet…</string>
+  <string name="idle_device_name">This TV: %1$s</string>
+  <string name="protocol_version">Protocol version %1$d</string>
+</resources>

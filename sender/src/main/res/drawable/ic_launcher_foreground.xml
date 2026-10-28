@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Beamline mark: a screen with a beam entering it. 108x108 adaptive-icon canvas. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+  android:width="108dp"
+  android:height="108dp"
+  android:viewportWidth="108"
+  android:viewportHeight="108">
+  <path
+    android:fillColor="#3DD6F5"
+    android:pathData="M27,80 L50,49 L61,58 Z" />
+  <path
+    android:strokeColor="#FFFFFF"
+    android:strokeWidth="4"
+    android:strokeLineJoin="round"
+    android:pathData="M38,37 h36 a4,4 0 0 1 4,4 v22 a4,4 0 0 1 -4,4 h-36 a4,4 0 0 1 -4,-4 v-22 a4,4 0 0 1 4,-4 z" />
+  <path
+    android:strokeColor="#FFFFFF"
+    android:strokeWidth="4"
+    android:strokeLineCap="round"
+    android:pathData="M48,74 h16" />
+</vector>
