@@ -12,3 +12,4 @@ Each milestone ends with something that runs on the real devices: the Fire TV St
 | **M4 AirPlay** | UxPlay built with the NDK for armeabi-v7a and arm64-v8a, JNI bindings, shared player screen. | The iPad mirrors with sound through the same TV app. |
 | **M5 TV polish** | Idle screen, D-pad settings, start on boot, busy handling, German and English text. | Usable end to end with only the TV remote and the phones. |
 | **M6 Release** | Signed release APKs on GitHub, user guide, F-Droid metadata, reproducible builds. | Someone else can install it from the README alone. |
+| **M7 Laptops** | Macs already work through AirPlay (M4). A small Windows sender: screen or window capture with sound, hardware H.264, the same protocol and pairing as the phone app. | A Windows laptop mirrors a browser tab with sound to the TV. |
