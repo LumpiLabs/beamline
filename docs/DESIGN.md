@@ -5,8 +5,10 @@ Status: draft for review, 2026-10-28.
 ## Goal
 
 Mirror the screen and sound of an iPad, a Pixel 8 and a Galaxy S26+ to a Fire TV
-Stick with one free, open-source TV app, with low latency, good picture quality and
-no ads, accounts or tracking.
+Stick with one free, open-source TV app, with smooth video and sound, good picture
+quality and no ads, accounts or tracking. The main use is watching video that plays
+better on the phone than on the TV (for example ClipMyHorse, or web apps like Longines
+TV), so smooth playback matters more than a low delay.
 
 ## Constraints that shape the design
 
@@ -52,7 +54,7 @@ TXT record keys:
 | `id` | `3f9a…` | First 16 hex characters of the SHA-256 of the receiver's certificate. Stable per install. |
 | `n` | `Living room TV` | Display name. |
 | `c` | `h264,hevc,opus,aac` | Supported codecs. |
-| `r` | `1920x1080@60` | Largest stream the receiver wants. |
+| `r` | `2560x1080@60` | Largest stream the receiver wants. |
 
 The sender lists services it finds and also accepts a manually entered IP address
 for networks that block multicast.
@@ -116,11 +118,16 @@ paired phones or to ask every time.
   where supported, `KEY_REPEAT_PREVIOUS_FRAME_AFTER` so static screens keep a steady
   stream, long keyframe interval with keyframes on demand
   (`PARAMETER_KEY_REQUEST_SYNC_FRAME`). Output is scaled to the receiver's limit,
-  1920×1080 at up to 60 fps by default.
+  2560×1080 at up to 60 fps by default: Full HD height, and wide enough that a 20:9
+  phone in landscape keeps full detail when the TV fills its screen. The bitrate is
+  about 1/16 bit per pixel per frame, between 2 and 12 Mbit/s (about 9 Mbit/s for a
+  landscape phone).
+- **Keep-alive:** some encoders (Samsung's) ignore `KEY_REPEAT_PREVIOUS_FRAME_AFTER`
+  and send nothing while the screen is still, so the phone sends a `ping` every second.
 - **Rotation:** on an orientation change the encoder is reconfigured, and a new
   `stream` message plus codec config are sent before the next frame.
 - **Audio:** `AudioPlaybackCaptureConfiguration` (usages media, game and unknown),
-  48 kHz stereo PCM, encoded to Opus at 128 kbit/s with 10 ms frames. The phone keeps
+  48 kHz stereo PCM, encoded to Opus at 128 kbit/s with 20 ms frames. The phone keeps
   playing its own audio unless the user mutes it.
 - **UI:** a receiver list with manual address entry, and a foreground service (type
   `mediaProjection`) with a notification that has a Stop action.
@@ -131,12 +138,29 @@ paired phones or to ask every time.
 
 ## Receiver (TV)
 
-- **Video:** `MediaCodec` decoding straight to a `SurfaceView`. Frames are released
-  as soon as they are decoded unless they are already late relative to audio, in
-  which case they are dropped.
-- **Audio:** Opus decoded with `MediaCodec`, played through `AudioTrack` with a small
-  adaptive jitter buffer (starting at 40 ms). The audio clock is the master clock for
-  A/V sync.
+- **Video:** `MediaCodec` decoding straight to a `SurfaceView`. Compressed frames wait
+  in a buffer and go to the decoder 60 ms before they are due, so the decoder never
+  runs out of output slots; each decoded frame is released for its exact display time
+  (`releaseOutputBuffer` with a timestamp). Display times follow the sound's clock, and
+  are smoothed into an even cadence, because a phone composing 25 fps video on a
+  120 Hz screen delivers frames alternately 33 and 42 ms apart.
+- **Refresh rate:** the receiver detects steady 24, 25 or 50 fps content and asks the
+  TV for a matching display mode (50 Hz for 25 and 50 fps) at the same resolution, so
+  every frame is shown equally long. It switches after 4 seconds of steady content and
+  back to the default after 15 seconds of other content, because each switch blanks the
+  TV for a moment.
+- **Fill or fit:** landscape pictures fill the screen by default, cropping the phone's
+  black side bars; OK on the remote toggles to showing the whole picture. Portrait
+  pictures are always shown whole.
+- **Audio:** Opus decoded with `MediaCodec`, played through a normal mixer `AudioTrack`.
+  Playback starts once 300 ms is queued, and a chunk is dropped when more than 600 ms
+  piles up (clock drift over a long session). Before Android 12 a started or flushed
+  track only plays once its whole buffer is full, so while filling, the track's usable
+  size is shrunk to the 300 ms start cushion and grown back once the mixer takes it. A
+  track whose position stops moving for 300 ms (for example after a refresh-rate switch
+  resets the TV's audio output) is flushed and restarted. The audio clock is the master
+  clock for A/V sync; without sound, video plays 250 ms behind the fastest observed
+  network transit.
 - **UI:** a leanback launcher banner, an idle screen with the TV's name and pairing
   status, a full-screen player, a statistics overlay (bitrate, fps, latency, dropped
   frames) on a remote button, and settings that work with the D-pad.
@@ -145,17 +169,23 @@ paired phones or to ask every time.
 - **AirPlay (M4):** UxPlay's server runs alongside the Beamline receiver and renders
   into the same player screen, so an iPad and an Android phone use the same TV app.
 
-## Latency
+## Delay
 
-Target: under 100 ms from phone screen to TV screen on 5 GHz Wi-Fi at 1080p60.
+Smooth playback comes first: the TV plays about a third of a second behind the phone,
+which hides Wi-Fi hiccups of that length without a stutter. Picture and sound stay in
+sync with each other; only the phone itself is ahead.
 
+Planned for M3:
+
+- An optional low-latency mode for presenting and games, under 150 ms from phone
+  screen to TV screen on 5 GHz Wi-Fi, with a small buffer.
 - The sender never queues: if the socket's unsent data exceeds about two frames, it
   skips encoder output until the next keyframe, asks the encoder for one, and lowers
   the bitrate.
 - Bitrate adapts between 2 and 20 Mbit/s based on send backlog and receiver `stats`
   (decode queue length, late frames).
-- `ping`/`pong` every second estimates round-trip time and the clock offset, so the
-  statistics overlay can show real end-to-end latency.
+- `ping`/`pong` every second already measures round-trip time; the statistics overlay
+  will show it with the end-to-end delay.
 
 ## Known limits
 
@@ -166,12 +196,16 @@ Target: under 100 ms from phone screen to TV screen on 5 GHz Wi-Fi at 1080p60.
   [UxPlay #535](https://github.com/FDH2/UxPlay/issues/535).
 - Android 14+ asks for screen-capture consent at the start of every session. That is
   an Android rule, not something Beamline can skip.
+- When a phone locks, Android stops sending the screen's picture. A keep-awake option
+  is planned (M5); on the iPad, AirPlay video keeps playing while locked (M4).
 
 ## Testing
 
 - `protocol`: JVM unit tests for framing, CBOR messages and pairing codes.
 - Device tests over adb: the Fire TV (10.10.20.150) plus both phones over wireless
   debugging. Scripts install builds, start sessions and pull logs and statistics.
+- `tools/test-sender` streams a test pattern, optionally with sound from an Ogg Opus
+  file, to the TV from a PC, so the TV app can be checked without a phone.
 - Latency: the statistics overlay plus a stopwatch-style test pattern in the sender
   app, filmed with a phone camera for a glass-to-glass check.
 - CI: GitHub Actions builds all APKs and runs unit tests on every push.

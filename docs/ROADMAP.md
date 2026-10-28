@@ -3,13 +3,13 @@
 Each milestone ends with something that runs on the real devices: the Fire TV Stick
 4K Max (Fire OS 7), a Pixel 8, a Galaxy S26+ and an iPad.
 
-| Milestone | Scope | Done when |
-|---|---|---|
-| **M0 Foundation** | Android SDK on the dev PC, Gradle project with `protocol`, `sender` and `receiver` modules, CI build, adb installs through Gradle. | Both apps build in CI and install on the Fire TV and a phone. |
-| **M1 Video** | Discovery, TCP session, H.264 capture and playback, start and stop, rotation, Quick Settings tile. | Pixel 8 and Galaxy S26+ mirror to the TV at 1080p with under 150 ms latency. |
-| **M2 Audio** | Opus capture and playback, A/V sync, automatic reconnect. | Video with in-sync sound plays for 30 minutes without drift or drop-outs. |
-| **M3 Robustness** | TLS with numeric-comparison pairing, adaptive bitrate, HEVC, statistics overlay, clear error messages. | Under 100 ms on 5 GHz Wi-Fi; recovers from Wi-Fi hiccups without restarting. |
-| **M4 AirPlay** | UxPlay built with the NDK for armeabi-v7a and arm64-v8a, JNI bindings, shared player screen. | The iPad mirrors with sound through the same TV app. |
-| **M5 TV polish** | Idle screen, D-pad settings, start on boot, busy handling, German and English text. | Usable end to end with only the TV remote and the phones. |
-| **M6 Release** | Signed release APKs on GitHub, user guide, F-Droid metadata, reproducible builds. | Someone else can install it from the README alone. |
-| **M7 Laptops** | Macs already work through AirPlay (M4). A small Windows sender: screen or window capture with sound, hardware H.264, the same protocol and pairing as the phone app. | A Windows laptop mirrors a browser tab with sound to the TV. |
+| Milestone | Scope | Done when | Status |
+|---|---|---|---|
+| **M0 Foundation** | Android SDK on the dev PC, Gradle project with `protocol`, `sender` and `receiver` modules, CI build, adb installs through Gradle. | Both apps build in CI and install on the Fire TV and a phone. | Done locally; CI runs once the repository is pushed. |
+| **M1 Video** | Discovery, TCP session, H.264 capture and playback, start and stop, rotation, Quick Settings tile, fill or fit the screen, matching the TV's refresh rate to the video (50 Hz for 25 fps). | Pixel 8 and Galaxy S26+ mirror smoothly to the TV at up to 1080p. | Done on the Galaxy S26+; Pixel 8 not tested yet. |
+| **M2 Audio** | Opus capture and playback, A/V sync, automatic reconnect. | Video with in-sync sound plays for 30 minutes without drift or drop-outs. | Sound and sync work; automatic reconnect and the 30-minute test are open. |
+| **M3 Robustness** | TLS with numeric-comparison pairing, adaptive bitrate, HEVC, statistics overlay, clear error messages, an optional low-latency mode for presenting and games. | Recovers from Wi-Fi hiccups without restarting; low-latency mode stays under 150 ms on 5 GHz Wi-Fi. | Planned |
+| **M4 AirPlay** | UxPlay built with the NDK for armeabi-v7a and arm64-v8a, JNI bindings, shared player screen. AirPlay video too: the AirPlay button in a video app sends the video itself instead of the screen, so it keeps playing while the iPad is locked. | The iPad mirrors with sound through the same TV app, and a video sent with the AirPlay button keeps playing with the iPad locked. | Planned |
+| **M5 Polish** | TV: idle screen, D-pad settings, start on boot, busy handling, German and English text. Phone: an option to keep the phone awake (screen dimmed) while mirroring, because Android stops sending the picture when the phone locks. | Usable end to end with only the TV remote and the phones. | Planned |
+| **M6 Release** | Signed release APKs on GitHub, user guide, F-Droid metadata, reproducible builds. | Someone else can install it from the README alone. | Planned |
+| **M7 Laptops** | Macs already work through AirPlay (M4). A small Windows sender: screen or window capture with sound, hardware H.264, the same protocol and pairing as the phone app. | A Windows laptop mirrors a browser tab with sound to the TV. | Planned |

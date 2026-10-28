@@ -248,10 +248,10 @@ class MirrorServer(
       }
     }
 
-  private companion object {
-    const val TAG = "BeamlineServer"
-    const val HANDSHAKE_TIMEOUT_MS = 5_000
-    const val STREAM_TIMEOUT_MS = 10_000
+  companion object {
+    private const val TAG = "BeamlineServer"
+    private const val HANDSHAKE_TIMEOUT_MS = 5_000
+    private const val STREAM_TIMEOUT_MS = 10_000
     const val MAX_FPS = 60
 
     /** Full HD height; wider than 16:9 so a 20:9 phone in landscape keeps full detail when filled. */

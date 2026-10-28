@@ -21,7 +21,7 @@ class ServiceAdvertiser(context: Context) {
       setAttribute(Protocol.Txt.VERSION, Protocol.VERSION.toString())
       setAttribute(Protocol.Txt.NAME, name)
       setAttribute(Protocol.Txt.CODECS, "${Codecs.H264},${Codecs.OPUS}")
-      setAttribute(Protocol.Txt.RESOLUTION, "1920x1080@60")
+      setAttribute(Protocol.Txt.RESOLUTION, with(MirrorServer.MAX_SIZE) { "${width}x$height@${MirrorServer.MAX_FPS}" })
     }
     val registration = object : NsdManager.RegistrationListener {
       override fun onServiceRegistered(info: NsdServiceInfo) {
