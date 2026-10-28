@@ -10,10 +10,10 @@ import java.util.concurrent.atomic.AtomicLong
  * reconnects keeps its figures, so the totals cover the whole time it mirrors.
  *
  * The decoder and audio threads update their own counters; arrivals are counted on the session
- * thread, which also takes a [snapshot] about once a second.
+ * thread, which also takes a [snapshot] about once a second. [nanoTime] is replaceable for tests.
  */
-class PlaybackStats {
-  private val startedNs = System.nanoTime()
+class PlaybackStats(private val nanoTime: () -> Long = System::nanoTime) {
+  private val startedNs = nanoTime()
   private val reconnects = AtomicInteger()
 
   val framesShown = AtomicLong()
@@ -68,7 +68,7 @@ class PlaybackStats {
     roundTripUs: Long?,
     skewNs: Long?,
   ): StatsSnapshot {
-    val now = System.nanoTime()
+    val now = nanoTime()
     val shown = framesShown.get()
     val seconds = ((now - mark.atNs) / 1e9).coerceAtLeast(0.001)
     val jitterNs = (maxTransitNs - minTransitNs).takeIf { maxTransitNs >= minTransitNs }
