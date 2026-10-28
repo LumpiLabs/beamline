@@ -62,6 +62,7 @@ class PlaybackStats {
   @Synchronized
   fun snapshot(
     video: VideoSize?,
+    codec: String?,
     contentRate: StandardRate?,
     delayNs: Long?,
     roundTripUs: Long?,
@@ -76,6 +77,7 @@ class PlaybackStats {
       elapsedMs = (now - startedNs) / 1_000_000,
       reconnects = reconnects.get(),
       video = video,
+      codec = codec,
       receivedFps = (framesReceived - mark.received) / seconds,
       shownFps = (shown - mark.shown) / seconds,
       bitrateKbps = ((bytesReceived - mark.bytes) * 8 / seconds / 1000).toLong(),
@@ -109,6 +111,8 @@ data class StatsSnapshot(
   val elapsedMs: Long,
   val reconnects: Int,
   val video: VideoSize?,
+  /** A [io.github.lumpilabs.beamline.protocol.Codecs] name. */
+  val codec: String?,
   val receivedFps: Double,
   val shownFps: Double,
   val bitrateKbps: Long,
@@ -132,7 +136,7 @@ data class StatsSnapshot(
     "After %d s, %d reconnects: %s, %.1f fps shown of %.1f received, %d kbit/s, content %s, %d late, %d dropped, delay %s ms, round trip %s ms, jitter %s ms (worst %d), sound %s ms queued, skew %s ms, %d chunks dropped, %d ms skipped, %d restarts".format(
       elapsedMs / 1000,
       reconnects,
-      video?.let { "${it.width}x${it.height}" } ?: "no video",
+      video?.let { "${it.width}x${it.height} $codec" } ?: "no video",
       shownFps,
       receivedFps,
       bitrateKbps,

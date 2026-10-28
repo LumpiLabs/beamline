@@ -18,8 +18,10 @@ class ControlCodecTest {
       Hello(listOf(1), "Pixel 8", listOf(Codecs.H264), listOf(Codecs.OPUS), "6f1c2a"),
       Welcome(1, "Living room TV", 1920, 1080, 60),
       Welcome(1, "Living room TV", 1920, 1080, 60, listOf(Codecs.OPUS)),
+      Welcome(1, "Living room TV", 2560, 1080, 60, listOf(Codecs.OPUS), listOf(Codecs.H264, Codecs.HEVC)),
       AudioConfig(Codecs.OPUS, 48_000, 2),
       StreamConfig(Codecs.H264, 1080, 2400, 60),
+      StreamConfig(Codecs.HEVC, 2336, 1072, 60),
       BitrateHint(8_000_000),
       Ping(7, 123_456_789),
       Pong(7, 123_456_789, 987_654_321),
@@ -54,13 +56,17 @@ class ControlCodecTest {
   }
 
   @Test
-  fun welcomeFromAReceiverWithoutSoundHasNoAudioCodecs() {
-    // Receivers before sound support send welcome without the audio_codecs field.
+  fun welcomeFromAnOlderReceiverMeansNoSoundAndOnlyH264() {
+    // Receivers before sound support send welcome without audio_codecs, and before HEVC
+    // support without video_codecs.
     @OptIn(ExperimentalSerializationApi::class)
     val body = Cbor.encodeToByteArray(LegacyWelcome.serializer(), LegacyWelcome(1, "Old TV", 1920, 1080, 60))
     val name = "welcome".encodeToByteArray()
     val legacy = byteArrayOf(0x82.toByte(), (0x60 + name.size).toByte()) + name + body
-    assertEquals(Welcome(1, "Old TV", 1920, 1080, 60), ControlCodec.decode(legacy))
+    val welcome = ControlCodec.decode(legacy) as Welcome
+    assertEquals(Welcome(1, "Old TV", 1920, 1080, 60), welcome)
+    assertEquals(emptyList(), welcome.audioCodecs)
+    assertEquals(listOf(Codecs.H264), welcome.videoCodecs)
   }
 
   @Serializable

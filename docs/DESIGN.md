@@ -83,7 +83,8 @@ CBOR two-element arrays of the form `["<name>", {...}]`, the body a map with sna
 field names; unknown fields are ignored and unknown message names are skipped, so newer
 peers can add both. Messages: `hello` (versions, device name, capabilities, and a
 `sender_id` that stays the same for one install of the sender app),
-`welcome` (chosen version and stream limits), `stream` (codec, width, height, fps,
+`welcome` (chosen version, stream limits, and the audio and video codecs the receiver
+plays; a receiver that lists no video codecs takes H.264), `stream` (codec, width, height, fps,
 rotation, sent before each new video config), `request_keyframe`, `bitrate_hint`,
 `ping`/`pong` (round-trip time and clock offset), `stats`, and `bye` (with reason).
 Both sides ping once a second. The sender's `time_us` in pings and pongs is on the
@@ -117,8 +118,13 @@ paired phones or to ask every time.
 - **Capture:** `MediaProjection` into a `VirtualDisplay` whose surface is the encoder's
   input surface, so frames never pass through app memory. Android 14 and newer ask on
   every session whether to share the whole screen or one app; both work.
-- **Video encoding:** hardware `MediaCodec`, H.264 High profile by default and HEVC
-  when both sides support it. Realtime priority (`KEY_PRIORITY` 0), `KEY_LATENCY` 1
+- **Video encoding:** hardware `MediaCodec`, H.264 by default. HEVC, for a sharper
+  picture at the same bitrate, when the user switches it on in the app, the TV lists it
+  in `welcome` (it checks for a hardware decoder at its stream limits), and the phone
+  has a hardware HEVC encoder for the size; the first HEVC encoder Android lists can be
+  a software one, far too slow for the screen, so the phone picks the hardware one by
+  name. If the HEVC encoder won't start, a new `stream` switches the TV back to H.264
+  for the rest of the session. Realtime priority (`KEY_PRIORITY` 0), `KEY_LATENCY` 1
   where supported, `KEY_REPEAT_PREVIOUS_FRAME_AFTER` so static screens keep a steady
   stream, long keyframe interval with keyframes on demand
   (`PARAMETER_KEY_REQUEST_SYNC_FRAME`). Output is scaled to the receiver's limit,

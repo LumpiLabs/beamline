@@ -1,6 +1,8 @@
 package io.github.lumpilabs.beamline.receiver
 
 import android.media.MediaCodec
+import android.media.MediaCodecInfo
+import android.media.MediaCodecList
 import android.media.MediaFormat
 import android.os.Build
 import android.os.Handler
@@ -10,6 +12,7 @@ import io.github.lumpilabs.beamline.protocol.Codecs
 import io.github.lumpilabs.beamline.protocol.Frame
 import io.github.lumpilabs.beamline.protocol.FrameFlags
 import io.github.lumpilabs.beamline.protocol.StreamConfig
+import io.github.lumpilabs.beamline.protocol.VideoSize
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
@@ -190,24 +193,49 @@ class VideoDecoder(
 
   private class Pending(val frame: Frame, val renderAt: Long?)
 
-  private companion object {
-    const val MAX_INPUT_SIZE = 4 * 1024 * 1024
+  companion object {
+    /**
+     * The codecs this TV decodes in hardware at [size] and [fps]: H.264 always, HEVC where the chip
+     * has it (the Fire TV Stick 4K Max does).
+     */
+    fun supportedCodecs(size: VideoSize, fps: Int): List<String> {
+      val hevc = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.any { info ->
+        !info.isEncoder &&
+          !isSoftwareOnly(info) &&
+          info.supportedTypes.any { it.equals(MediaFormat.MIMETYPE_VIDEO_HEVC, ignoreCase = true) } &&
+          runCatching {
+            info.getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_HEVC).videoCapabilities
+              ?.areSizeAndRateSupported(size.width, size.height, fps.toDouble()) == true
+          }.getOrDefault(false)
+      }
+      return if (hevc) listOf(Codecs.H264, Codecs.HEVC) else listOf(Codecs.H264)
+    }
+
+    /** MediaCodecInfo.isSoftwareOnly is Android 10; Fire OS 7 is Android 9, where the name tells. */
+    private fun isSoftwareOnly(info: MediaCodecInfo): Boolean =
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        info.isSoftwareOnly
+      } else {
+        info.name.startsWith("OMX.google.") || info.name.startsWith("c2.android.")
+      }
+
+    private const val MAX_INPUT_SIZE = 4 * 1024 * 1024
 
     /** About two seconds at 60 fps; a normal buffer holds a few hundred milliseconds. */
-    const val MAX_PENDING = 120
+    private const val MAX_PENDING = 120
 
     /** How long before its time a frame goes into the decoder; decoding takes 10 to 30 ms. */
-    const val DECODE_LEAD_NS = 60_000_000L
+    private const val DECODE_LEAD_NS = 60_000_000L
 
     /** Frames due within this are shown at once. */
-    const val ON_TIME_NS = 4_000_000L
+    private const val ON_TIME_NS = 4_000_000L
 
     /** Never hold a decoded frame longer than this: the decoder has only a few output buffers. */
-    const val MAX_HOLD_NS = 100_000_000L
+    private const val MAX_HOLD_NS = 100_000_000L
 
     /** A frame decoded this long after its time misses at least one refresh of a 60 Hz screen. */
-    const val LATE_NS = 16_700_000L
+    private const val LATE_NS = 16_700_000L
 
-    const val MAX_RENDER_TIMES = 256
+    private const val MAX_RENDER_TIMES = 256
   }
 }

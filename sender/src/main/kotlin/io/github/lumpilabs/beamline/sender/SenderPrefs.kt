@@ -15,6 +15,7 @@ object SenderPrefs {
   private const val TILE_ADDED = "tile_added"
   private const val SENDER_ID = "sender_id"
   private const val KEEP_AWAKE = "keep_awake"
+  private const val HEVC = "hevc"
 
   /** The TV mirrored to most recently; the Quick Settings tile mirrors to it. */
   fun lastReceiver(context: Context): ReceiverAddress? {
@@ -46,6 +47,11 @@ object SenderPrefs {
   fun keepAwake(context: Context): Boolean = prefs(context).getBoolean(KEEP_AWAKE, true)
 
   fun setKeepAwake(context: Context, keepAwake: Boolean) = prefs(context).edit { putBoolean(KEEP_AWAKE, keepAwake) }
+
+  /** Send HEVC when the TV takes it. Off by default until it has been tried on more phones. */
+  fun hevc(context: Context): Boolean = prefs(context).getBoolean(HEVC, false)
+
+  fun setHevc(context: Context, hevc: Boolean) = prefs(context).edit { putBoolean(HEVC, hevc) }
 
   /** Random id the TV uses to recognize this phone when it reconnects after a lost connection. */
   @Synchronized

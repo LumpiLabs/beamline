@@ -4,7 +4,7 @@
   <string name="protocol_version">Protocol version %1$d</string>
   <string name="status_idle">Not mirroring</string>
   <string name="status_connecting">Connecting to %1$s…</string>
-  <string name="status_mirroring">Mirroring to %1$s (%2$d × %3$d)</string>
+  <string name="status_mirroring">Mirroring to %1$s (%2$d × %3$d, %4$s)</string>
   <string name="status_reconnecting">Connection lost, reconnecting to %1$s…</string>
   <string name="status_failed">Stopped: %1$s</string>
   <string name="stop">Stop</string>
@@ -27,6 +27,8 @@
   <string name="add_tile">Add to Quick Settings</string>
   <string name="keep_awake">Keep the phone awake while mirroring</string>
   <string name="keep_awake_explanation">The screen dims instead of locking. Once the phone locks, Android stops sending the picture.</string>
+  <string name="hevc">Sharper picture with HEVC</string>
+  <string name="hevc_explanation">Uses HEVC instead of H.264 when the phone and the TV both handle it in hardware: a sharper picture over the same Wi-Fi. Applies from the next start.</string>
   <string name="tile_connecting">Connecting…</string>
   <string name="tile_reconnecting">Reconnecting…</string>
   <string name="tile_pick_tv">Tap to pick a TV</string>

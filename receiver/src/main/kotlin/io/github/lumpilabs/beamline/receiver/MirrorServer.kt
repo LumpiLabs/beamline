@@ -73,6 +73,11 @@ class MirrorServer(
 
   @Volatile private var serverSocket: ServerSocket? = null
 
+  /** What the TV can decode, offered to every sender in `welcome`; looked up once. */
+  private val videoCodecs by lazy {
+    VideoDecoder.supportedCodecs(MAX_SIZE, MAX_FPS).also { Log.i(TAG, "Decodes $it") }
+  }
+
   private val lock = Any()
 
   /** The session playing on the screen. Guarded by [lock]. */
@@ -170,7 +175,7 @@ class MirrorServer(
           send(Bye("busy"))
           return
         }
-        send(Welcome(version, tvName, MAX_SIZE.width, MAX_SIZE.height, MAX_FPS, listOf(Codecs.OPUS)))
+        send(Welcome(version, tvName, MAX_SIZE.width, MAX_SIZE.height, MAX_FPS, listOf(Codecs.OPUS), videoCodecs))
         events.onConnected(hello.name)
         stream()
       } catch (e: IOException) {
@@ -271,6 +276,7 @@ class MirrorServer(
       val delayNs = if (shown != null && offsetNs != null) shown - offsetNs else null
       val snapshot = stats.snapshot(
         video = config?.let { VideoSize(it.width, it.height) },
+        codec = config?.codec,
         contentRate = clock.steadyFrameRate(),
         delayNs = delayNs?.takeIf { it in 0..MAX_PLAUSIBLE_DELAY_NS },
         roundTripUs = clockSync.roundTripUs,

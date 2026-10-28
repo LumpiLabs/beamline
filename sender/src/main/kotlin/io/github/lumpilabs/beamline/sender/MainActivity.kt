@@ -11,6 +11,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
+import androidx.annotation.StringRes
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -51,6 +52,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import io.github.lumpilabs.beamline.protocol.Codecs
 import io.github.lumpilabs.beamline.protocol.Protocol
 import io.github.lumpilabs.beamline.protocol.VideoSize
 
@@ -59,6 +61,7 @@ class MainActivity : ComponentActivity() {
   private var tileAdded by mutableStateOf(false)
   private var soundAllowed by mutableStateOf(true)
   private var keepAwake by mutableStateOf(true)
+  private var hevc by mutableStateOf(false)
 
   private val requestPermissions =
     registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
@@ -72,6 +75,7 @@ class MainActivity : ComponentActivity() {
     discovery = ReceiverDiscovery(applicationContext)
     tileAdded = SenderPrefs.isTileAdded(this)
     keepAwake = SenderPrefs.keepAwake(this)
+    hevc = SenderPrefs.hevc(this)
     setContent {
       BeamlineTheme {
         val status by MirrorState.status.collectAsState()
@@ -82,10 +86,12 @@ class MainActivity : ComponentActivity() {
           localNetworkAllowed = hasLocalNetworkAccess(),
           soundAllowed = soundAllowed,
           keepAwake = keepAwake,
+          hevc = hevc,
           onConnect = { startActivity(CaptureActivity.intent(this, it)) },
           onStop = { MirrorService.stop(this) },
           onAddTile = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !tileAdded) ::requestAddTile else null,
           onKeepAwakeChange = ::changeKeepAwake,
+          onHevcChange = ::changeHevc,
         )
       }
     }
@@ -95,6 +101,12 @@ class MainActivity : ComponentActivity() {
     SenderPrefs.setKeepAwake(this, enabled)
     keepAwake = enabled
     if (MirrorState.status.value.isActive) MirrorService.updateKeepAwake(this)
+  }
+
+  /** Applies from the next encoder start: the next session, or a rotation. */
+  private fun changeHevc(enabled: Boolean) {
+    SenderPrefs.setHevc(this, enabled)
+    hevc = enabled
   }
 
   /** Asks Android to put the Beamline tile into Quick Settings (Android 13 and newer). */
@@ -168,10 +180,12 @@ fun SenderScreen(
   localNetworkAllowed: Boolean,
   soundAllowed: Boolean,
   keepAwake: Boolean,
+  hevc: Boolean,
   onConnect: (ReceiverAddress) -> Unit,
   onStop: () -> Unit,
   onAddTile: (() -> Unit)?,
   onKeepAwakeChange: (Boolean) -> Unit,
+  onHevcChange: (Boolean) -> Unit,
 ) {
   Scaffold { padding ->
     LazyColumn(
@@ -189,7 +203,8 @@ fun SenderScreen(
       if (onAddTile != null) {
         item { AddTileCard(onAddTile) }
       }
-      item { KeepAwakeSetting(keepAwake, onKeepAwakeChange) }
+      item { SwitchSetting(R.string.keep_awake, R.string.keep_awake_explanation, keepAwake, onKeepAwakeChange) }
+      item { SwitchSetting(R.string.hevc, R.string.hevc_explanation, hevc, onHevcChange) }
       if (!localNetworkAllowed) {
         item { Text(stringResource(R.string.local_network_needed), style = MaterialTheme.typography.bodyMedium) }
       }
@@ -230,8 +245,13 @@ private fun StatusCard(status: MirrorStatus, onStop: () -> Unit) {
       val text = when (status) {
         MirrorStatus.Idle -> stringResource(R.string.status_idle)
         is MirrorStatus.Connecting -> stringResource(R.string.status_connecting, status.receiver)
-        is MirrorStatus.Mirroring ->
-          stringResource(R.string.status_mirroring, status.receiver, status.size.width, status.size.height)
+        is MirrorStatus.Mirroring -> stringResource(
+          R.string.status_mirroring,
+          status.receiver,
+          status.size.width,
+          status.size.height,
+          if (status.codec == Codecs.HEVC) "HEVC" else "H.264",
+        )
         is MirrorStatus.Reconnecting -> stringResource(R.string.status_reconnecting, status.receiver)
         is MirrorStatus.Failed -> stringResource(R.string.status_failed, status.message)
       }
@@ -254,10 +274,15 @@ private fun AddTileCard(onAddTile: () -> Unit) {
 }
 
 @Composable
-private fun KeepAwakeSetting(checked: Boolean, onChange: (Boolean) -> Unit) {
+private fun SwitchSetting(
+  @StringRes title: Int,
+  @StringRes explanation: Int,
+  checked: Boolean,
+  onChange: (Boolean) -> Unit,
+) {
   ListItem(
-    headlineContent = { Text(stringResource(R.string.keep_awake)) },
-    supportingContent = { Text(stringResource(R.string.keep_awake_explanation)) },
+    headlineContent = { Text(stringResource(title)) },
+    supportingContent = { Text(stringResource(explanation)) },
     trailingContent = { Switch(checked = checked, onCheckedChange = null) },
     modifier = Modifier.toggleable(value = checked, role = Role.Switch, onValueChange = onChange),
   )
@@ -297,15 +322,17 @@ internal fun parseAddress(text: String): ReceiverAddress? {
 private fun SenderScreenPreview() {
   BeamlineTheme {
     SenderScreen(
-      status = MirrorStatus.Mirroring("Fire TV Stick 4K Max", VideoSize(480, 1072)),
+      status = MirrorStatus.Mirroring("Fire TV Stick 4K Max", VideoSize(480, 1072), Codecs.H264),
       receivers = listOf(ReceiverAddress("Fire TV Stick 4K Max", "192.168.1.50", Protocol.DEFAULT_PORT)),
       localNetworkAllowed = true,
       soundAllowed = true,
       keepAwake = true,
+      hevc = false,
       onConnect = {},
       onStop = {},
       onAddTile = {},
       onKeepAwakeChange = {},
+      onHevcChange = {},
     )
   }
 }

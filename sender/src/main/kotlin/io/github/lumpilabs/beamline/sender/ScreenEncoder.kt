@@ -2,21 +2,23 @@ package io.github.lumpilabs.beamline.sender
 
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
+import android.media.MediaCodecList
 import android.media.MediaFormat
 import android.os.Build
 import android.os.Bundle
 import android.view.Surface
+import io.github.lumpilabs.beamline.protocol.Codecs
 import io.github.lumpilabs.beamline.protocol.VideoSize
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 
 /**
- * Hardware H.264 encoder fed by a surface. Encoded output is handed to [sink] on a dedicated
- * thread as soon as it leaves the codec.
+ * Hardware H.264 or HEVC encoder ([videoCodec], a [Codecs] name) fed by a surface. Encoded output
+ * is handed to [sink] on a dedicated thread as soon as it leaves the codec.
  */
-class ScreenEncoder(size: VideoSize, fps: Int, bitrate: Int, private val sink: Sink) {
+class ScreenEncoder(videoCodec: String, size: VideoSize, fps: Int, bitrate: Int, private val sink: Sink) {
   interface Sink {
-    /** SPS and PPS, needed by the decoder before the first frame. */
+    /** Parameter sets (SPS and PPS, plus VPS for HEVC), needed by the decoder before the first frame. */
     fun onCodecConfig(data: ByteArray)
 
     fun onFrame(data: ByteArray, ptsUs: Long, keyframe: Boolean)
@@ -24,7 +26,14 @@ class ScreenEncoder(size: VideoSize, fps: Int, bitrate: Int, private val sink: S
     fun onError(error: Exception)
   }
 
-  private val codec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
+  private val codec = when (videoCodec) {
+    Codecs.H264 -> MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
+    // The first HEVC encoder listed can be a software one, far too slow for the screen.
+    Codecs.HEVC -> MediaCodec.createByCodecName(
+      hardwareEncoder(Codecs.HEVC, size, fps) ?: throw IllegalArgumentException("No hardware HEVC encoder"),
+    )
+    else -> throw IllegalArgumentException("Unsupported video codec $videoCodec")
+  }
   private val running = AtomicBoolean(true)
 
   /** Draw here (for example from a virtual display) to encode. */
@@ -33,7 +42,7 @@ class ScreenEncoder(size: VideoSize, fps: Int, bitrate: Int, private val sink: S
   private val drainThread: Thread
 
   init {
-    val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, size.width, size.height).apply {
+    val format = MediaFormat.createVideoFormat(mimeFor(videoCodec), size.width, size.height).apply {
       setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
       setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
       setInteger(MediaFormat.KEY_FRAME_RATE, fps)
@@ -47,9 +56,14 @@ class ScreenEncoder(size: VideoSize, fps: Int, bitrate: Int, private val sink: S
       setInteger(MediaFormat.KEY_PREPEND_HEADER_TO_SYNC_FRAMES, 1)
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) setInteger(MediaFormat.KEY_LATENCY, 1)
     }
-    codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-    inputSurface = codec.createInputSurface()
-    codec.start()
+    try {
+      codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+      inputSurface = codec.createInputSurface()
+      codec.start()
+    } catch (e: Exception) {
+      codec.release()
+      throw e
+    }
     drainThread = thread(name = "beamline-encoder", isDaemon = true) { drain() }
   }
 
@@ -112,5 +126,26 @@ class ScreenEncoder(size: VideoSize, fps: Int, bitrate: Int, private val sink: S
      */
     fun bitrateFor(size: VideoSize, fps: Int): Int =
       (size.width.toLong() * size.height * fps / 16).toInt().coerceIn(2_000_000, 12_000_000)
+
+    /** The name of a hardware encoder for [videoCodec] at [size] and [fps], or null if the phone has none. */
+    fun hardwareEncoder(videoCodec: String, size: VideoSize, fps: Int): String? {
+      val mime = mimeFor(videoCodec)
+      return MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.firstOrNull { info ->
+        info.isEncoder &&
+          info.isHardwareAccelerated &&
+          info.supportedTypes.any { it.equals(mime, ignoreCase = true) } &&
+          runCatching {
+            info.getCapabilitiesForType(mime).videoCapabilities
+              ?.areSizeAndRateSupported(size.width, size.height, fps.toDouble()) == true
+          }.getOrDefault(false)
+      }?.name
+    }
+
+    private fun mimeFor(videoCodec: String): String =
+      when (videoCodec) {
+        Codecs.H264 -> MediaFormat.MIMETYPE_VIDEO_AVC
+        Codecs.HEVC -> MediaFormat.MIMETYPE_VIDEO_HEVC
+        else -> throw IllegalArgumentException("Unsupported video codec $videoCodec")
+      }
   }
 }

@@ -40,6 +40,8 @@ data class Welcome(
   @SerialName("max_fps") val maxFps: Int,
   /** Audio codecs the receiver can play; empty for receivers without sound. */
   @SerialName("audio_codecs") val audioCodecs: List<String> = emptyList(),
+  /** Video codecs the receiver can decode at its stream limits; H.264 for receivers that don't say. */
+  @SerialName("video_codecs") val videoCodecs: List<String> = listOf(Codecs.H264),
 ) : Control
 
 /** Sender to receiver, before the codec config of the audio stream. */

@@ -13,7 +13,8 @@ sealed interface MirrorStatus {
 
   data class Connecting(val receiver: String) : MirrorStatus
 
-  data class Mirroring(val receiver: String, val size: VideoSize) : MirrorStatus
+  /** [codec] is a [io.github.lumpilabs.beamline.protocol.Codecs] name. */
+  data class Mirroring(val receiver: String, val size: VideoSize, val codec: String) : MirrorStatus
 
   /** The connection was lost; capture goes on while the phone tries to reach the TV again. */
   data class Reconnecting(val receiver: String) : MirrorStatus

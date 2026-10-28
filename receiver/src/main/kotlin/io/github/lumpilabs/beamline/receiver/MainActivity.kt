@@ -45,6 +45,7 @@ import androidx.core.content.ContextCompat
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import androidx.tv.material3.darkColorScheme
+import io.github.lumpilabs.beamline.protocol.Codecs
 import io.github.lumpilabs.beamline.protocol.FrameRateDetector
 import io.github.lumpilabs.beamline.protocol.Protocol
 import io.github.lumpilabs.beamline.protocol.VideoSize
@@ -215,9 +216,13 @@ private fun StatsOverlay(stats: StatsSnapshot, senderName: String, modifier: Mod
       stringResource(R.string.stats_mirroring_value, DateUtils.formatElapsedTime(stats.elapsedMs / 1000), stats.reconnects),
     )
     stats.video?.let {
+      val codec = when (stats.codec) {
+        Codecs.H264 -> "H.264"
+        else -> stats.codec?.uppercase().orEmpty()
+      }
       StatsRow(
         R.string.stats_picture,
-        stringResource(R.string.stats_picture_value, it.width, it.height, stats.shownFps, stats.bitrateKbps / 1000.0),
+        stringResource(R.string.stats_picture_value, it.width, it.height, codec, stats.shownFps, stats.bitrateKbps / 1000.0),
       )
     }
     val content = stats.contentRate?.let { stringResource(R.string.stats_content_fps, it.name.removePrefix("FPS_")) }
@@ -368,6 +373,7 @@ private fun StatsPreview() {
         elapsedMs = 754_000,
         reconnects = 1,
         video = VideoSize(1920, 864),
+        codec = Codecs.HEVC,
         receivedFps = 25.0,
         shownFps = 25.0,
         bitrateKbps = 4_200,

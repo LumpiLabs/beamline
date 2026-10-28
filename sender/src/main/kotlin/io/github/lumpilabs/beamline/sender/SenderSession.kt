@@ -98,6 +98,9 @@ class SenderSession(
   private var capturedContentSize: VideoSize? = null
   private var audio: AudioCapture? = null
 
+  /** The HEVC encoder wouldn't start once; H.264 for the rest of the session. */
+  private var hevcFailed = false
+
   @Volatile private var lastCodecConfig: ByteArray? = null
 
   @Volatile private var lastAudioConfig: ByteArray? = null
@@ -274,9 +277,11 @@ class SenderSession(
     if (size == null || targetSize() != size) {
       onSourceChanged()
     } else {
-      streamConfig?.let(::send)
+      streamConfig?.let {
+        send(it)
+        MirrorState.set(appContext, MirrorStatus.Mirroring(target.name, size, it.codec))
+      }
       sendKeyframe()
-      MirrorState.set(appContext, MirrorStatus.Mirroring(target.name, size))
     }
     if (audio == null) {
       startAudio()
@@ -347,15 +352,34 @@ class SenderSession(
 
   private fun startEncoder(size: VideoSize): ScreenEncoder {
     val fps = min(welcome.maxFps, MAX_FPS)
-    val config = StreamConfig(Codecs.H264, size.width, size.height, fps)
+    val codec = if (useHevc(size, fps)) Codecs.HEVC else Codecs.H264
+    val config = StreamConfig(codec, size.width, size.height, fps)
     send(config)
-    val newEncoder = ScreenEncoder(size, fps, ScreenEncoder.bitrateFor(size, fps), encoderSink)
+    val newEncoder = try {
+      ScreenEncoder(codec, size, fps, ScreenEncoder.bitrateFor(size, fps), encoderSink)
+    } catch (e: Exception) {
+      if (codec == Codecs.H264) throw e
+      // The new stream config tells the TV to switch its decoder back too.
+      Log.w(TAG, "HEVC encoder failed, using H.264", e)
+      hevcFailed = true
+      return startEncoder(size)
+    }
     encoder = newEncoder
     currentSize = size
     streamConfig = config
-    MirrorState.set(appContext, MirrorStatus.Mirroring(target.name, size))
+    MirrorState.set(appContext, MirrorStatus.Mirroring(target.name, size, codec))
     return newEncoder
   }
+
+  /**
+   * HEVC gives a sharper picture at the same bitrate, but only when the user switched it on, the TV
+   * decodes it and the phone encodes it in hardware at this size.
+   */
+  private fun useHevc(size: VideoSize, fps: Int): Boolean =
+    SenderPrefs.hevc(appContext) &&
+      !hevcFailed &&
+      Codecs.HEVC in welcome.videoCodecs &&
+      ScreenEncoder.hardwareEncoder(Codecs.HEVC, size, fps) != null
 
   /** Rotation or a resized captured app: restart the encoder at the new size. */
   private fun onSourceChanged() {

@@ -3,7 +3,7 @@
   <string name="protocol_version">Protokollversion %1$d</string>
   <string name="status_idle">Keine Spiegelung aktiv</string>
   <string name="status_connecting">Verbinde mit %1$s…</string>
-  <string name="status_mirroring">Spiegelt auf %1$s (%2$d × %3$d)</string>
+  <string name="status_mirroring">Spiegelt auf %1$s (%2$d × %3$d, %4$s)</string>
   <string name="status_reconnecting">Verbindung verloren, verbinde wieder mit %1$s…</string>
   <string name="status_failed">Beendet: %1$s</string>
   <string name="stop">Beenden</string>
@@ -26,6 +26,8 @@
   <string name="add_tile">Zu den Schnelleinstellungen hinzufügen</string>
   <string name="keep_awake">Handy beim Spiegeln wach halten</string>
   <string name="keep_awake_explanation">Der Bildschirm wird dunkler, statt zu sperren. Sobald das Handy gesperrt ist, sendet Android kein Bild mehr.</string>
+  <string name="hevc">Schärferes Bild mit HEVC</string>
+  <string name="hevc_explanation">Verwendet HEVC statt H.264, wenn Handy und Fernseher es beide in Hardware können: ein schärferes Bild bei gleicher WLAN-Last. Gilt ab dem nächsten Start.</string>
   <string name="tile_connecting">Verbinde…</string>
   <string name="tile_reconnecting">Verbinde wieder…</string>
   <string name="tile_pick_tv">Tippen, um einen Fernseher zu wählen</string>

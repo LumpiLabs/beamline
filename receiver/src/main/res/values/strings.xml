@@ -17,7 +17,7 @@
   <string name="stats_mirroring">Mirroring</string>
   <string name="stats_mirroring_value">%1$s, reconnects %2$d</string>
   <string name="stats_picture">Picture</string>
-  <string name="stats_picture_value" translatable="false">%1$d × %2$d, %3$.1f fps, %4$.1f Mbit/s</string>
+  <string name="stats_picture_value" translatable="false">%1$d × %2$d %3$s, %4$.1f fps, %5$.1f Mbit/s</string>
   <string name="stats_content">Content</string>
   <string name="stats_content_value">%1$s, TV at %2$d Hz</string>
   <string name="stats_content_fps" translatable="false">%1$s fps</string>
