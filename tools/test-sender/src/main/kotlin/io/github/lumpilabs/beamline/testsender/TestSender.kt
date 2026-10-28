@@ -38,7 +38,7 @@ fun main(args: Array<String>) {
   val size = VideoSize(1280, 720)
   val fps = 30
 
-  print("Encoding test pattern… ")
+  print("Encoding test pattern... ")
   val clip = TestPattern.encode(size, fps, frameCount = fps * 2)
   println("${clip.frames.size} frames, ${clip.frames.sumOf { it.data.size } / 1024} KiB")
 
@@ -50,8 +50,14 @@ fun main(args: Array<String>) {
     val reader = FrameReader(socket.getInputStream())
 
     writer.write(ControlCodec.toFrame(Hello(listOf(Protocol.VERSION), "Beamline test sender", listOf(Codecs.H264), emptyList())))
-    val welcome = reader.read()?.let { ControlCodec.decode(it.body) } as? Welcome
-      ?: error("The TV didn't answer with welcome")
+    val welcome = when (val reply = reader.read()?.let { ControlCodec.decode(it.body) }) {
+      is Welcome -> reply
+      is Bye -> {
+        println("The TV declined: ${reply.reason}")
+        exitProcess(1)
+      }
+      else -> error("The TV didn't answer with welcome")
+    }
     println("Connected to ${welcome.name} (protocol ${welcome.version}, up to ${welcome.maxWidth}x${welcome.maxHeight}@${welcome.maxFps})")
     socket.soTimeout = 0
 

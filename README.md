@@ -4,8 +4,9 @@ Free, open-source screen mirroring to Fire TV and Android TV: one TV app for iPa
 iPhones and Macs (over AirPlay) and Android phones (with the Beamline sender app).
 No ads, accounts, subscriptions or tracking.
 
-> **Status:** planning. Nothing is ready to install yet. See the
-> [design](docs/DESIGN.md) and [roadmap](docs/ROADMAP.md).
+> **Status:** in development, nothing to install yet. The TV app receives and plays
+> video (tested on a Fire TV Stick 4K Max); the phone app is written but not yet tested
+> on phones. See the [design](docs/DESIGN.md) and [roadmap](docs/ROADMAP.md).
 
 ## How it works
 
