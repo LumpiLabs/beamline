@@ -18,6 +18,8 @@
   <string name="error_capture_denied">Screen capture wasn\'t allowed.</string>
   <string name="add_tile_explanation">Start and stop mirroring with one tap from Quick Settings, next to Smart View.</string>
   <string name="add_tile">Add to Quick Settings</string>
+  <string name="keep_awake">Keep the phone awake while mirroring</string>
+  <string name="keep_awake_explanation">The screen dims instead of locking. Once the phone locks, Android stops sending the picture.</string>
   <string name="tile_connecting">Connecting…</string>
   <string name="tile_reconnecting">Reconnecting…</string>
   <string name="tile_pick_tv">Tap to pick a TV</string>

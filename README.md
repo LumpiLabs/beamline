@@ -13,7 +13,9 @@ No ads, accounts, subscriptions or tracking.
 - **TV:** install the Beamline TV app on your Fire TV or Android TV.
 - **iPad, iPhone, Mac:** open Screen Mirroring and pick the TV. No app needed.
 - **Android phones:** install the Beamline sender app and tap the TV in the app or
-  in Quick Settings.
+  in Quick Settings. While mirroring, the phone's screen stays on, dimmed, because
+  Android stops sending the picture once the phone locks; a switch in the app turns
+  that off.
 
 On the TV, OK switches between filling the screen and showing the whole picture, and
 Menu shows how mirroring is going: frame rate, delay, Wi-Fi jitter, dropped frames and

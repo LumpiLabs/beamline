@@ -1,5 +1,6 @@
 package io.github.lumpilabs.beamline.sender
 
+import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -10,20 +11,29 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.media.projection.MediaProjectionManager
 import android.os.IBinder
+import android.os.PowerManager
 import androidx.core.content.IntentCompat
 
 /**
  * Foreground service that holds the screen capture for one session. Android requires the
  * service to be in the foreground before the capture token can be used.
+ *
+ * While mirroring it can also keep the screen on, dimmed ([SenderPrefs.keepAwake]): once the phone
+ * locks, Android stops sending the picture.
  */
 class MirrorService : Service() {
   @Volatile private var session: SenderSession? = null
+  private var screenLock: PowerManager.WakeLock? = null
 
   override fun onBind(intent: Intent?): IBinder? = null
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     if (intent?.action == ACTION_STOP) {
       session?.stop(null) ?: stopSelf()
+      return START_NOT_STICKY
+    }
+    if (intent?.action == ACTION_KEEP_AWAKE) {
+      if (session != null) updateScreenLock() else stopSelf()
       return START_NOT_STICKY
     }
     val resultCode = intent?.getIntExtra(EXTRA_RESULT_CODE, 0) ?: 0
@@ -55,13 +65,38 @@ class MirrorService : Service() {
     session = started
     previous?.stop(null)
     started.start()
+    updateScreenLock()
     return START_NOT_STICKY
   }
 
   override fun onDestroy() {
     session?.stop(null)
     session = null
+    screenLock?.release()
+    screenLock = null
     super.onDestroy()
+  }
+
+  /**
+   * Holds or lets go of the screen to match the setting, which can change while mirroring. The lock
+   * is held as long as mirroring, which can go on for hours, and released in [onDestroy].
+   */
+  @SuppressLint("Wakelock", "WakelockTimeout")
+  private fun updateScreenLock() {
+    val held = screenLock?.isHeld == true
+    if (SenderPrefs.keepAwake(this) && !held) {
+      // FLAG_KEEP_SCREEN_ON would need a window of ours on screen, but the user is in another app.
+      @Suppress("DEPRECATION")
+      screenLock = getSystemService(PowerManager::class.java)
+        .newWakeLock(PowerManager.SCREEN_DIM_WAKE_LOCK, "Beamline:mirroring")
+        .apply {
+          setReferenceCounted(false)
+          acquire()
+        }
+    } else if (!SenderPrefs.keepAwake(this) && held) {
+      screenLock?.release()
+      screenLock = null
+    }
   }
 
   private fun notification(receiverName: String): Notification {
@@ -92,6 +127,7 @@ class MirrorService : Service() {
 
   companion object {
     private const val ACTION_STOP = "io.github.lumpilabs.beamline.sender.STOP"
+    private const val ACTION_KEEP_AWAKE = "io.github.lumpilabs.beamline.sender.KEEP_AWAKE"
     private const val EXTRA_RESULT_CODE = "result_code"
     private const val EXTRA_RESULT_DATA = "result_data"
     private const val EXTRA_NAME = "name"
@@ -112,6 +148,11 @@ class MirrorService : Service() {
 
     fun stop(context: Context) {
       context.startService(Intent(context, MirrorService::class.java).setAction(ACTION_STOP))
+    }
+
+    /** Applies a changed [SenderPrefs.keepAwake] to the running session. */
+    fun updateKeepAwake(context: Context) {
+      context.startService(Intent(context, MirrorService::class.java).setAction(ACTION_KEEP_AWAKE))
     }
   }
 }

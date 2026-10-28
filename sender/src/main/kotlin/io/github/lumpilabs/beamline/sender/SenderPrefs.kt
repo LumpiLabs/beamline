@@ -14,6 +14,7 @@ object SenderPrefs {
   private const val LAST_PORT = "last_receiver_port"
   private const val TILE_ADDED = "tile_added"
   private const val SENDER_ID = "sender_id"
+  private const val KEEP_AWAKE = "keep_awake"
 
   /** The TV mirrored to most recently; the Quick Settings tile mirrors to it. */
   fun lastReceiver(context: Context): ReceiverAddress? {
@@ -37,6 +38,14 @@ object SenderPrefs {
   fun isTileAdded(context: Context): Boolean = prefs(context).getBoolean(TILE_ADDED, false)
 
   fun setTileAdded(context: Context) = prefs(context).edit { putBoolean(TILE_ADDED, true) }
+
+  /**
+   * Keep the screen on, dimmed, while mirroring. On by default: once the phone locks, Android stops
+   * sending the picture, which ends a long video on the TV.
+   */
+  fun keepAwake(context: Context): Boolean = prefs(context).getBoolean(KEEP_AWAKE, true)
+
+  fun setKeepAwake(context: Context, keepAwake: Boolean) = prefs(context).edit { putBoolean(KEEP_AWAKE, keepAwake) }
 
   /** Random id the TV uses to recognize this phone when it reconnects after a lost connection. */
   @Synchronized

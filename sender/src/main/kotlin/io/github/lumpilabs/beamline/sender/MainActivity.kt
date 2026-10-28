@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -29,6 +30,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
@@ -44,6 +46,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -55,6 +58,7 @@ class MainActivity : ComponentActivity() {
   private lateinit var discovery: ReceiverDiscovery
   private var tileAdded by mutableStateOf(false)
   private var soundAllowed by mutableStateOf(true)
+  private var keepAwake by mutableStateOf(true)
 
   private val requestPermissions =
     registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
@@ -67,6 +71,7 @@ class MainActivity : ComponentActivity() {
     enableEdgeToEdge()
     discovery = ReceiverDiscovery(applicationContext)
     tileAdded = SenderPrefs.isTileAdded(this)
+    keepAwake = SenderPrefs.keepAwake(this)
     setContent {
       BeamlineTheme {
         val status by MirrorState.status.collectAsState()
@@ -76,12 +81,20 @@ class MainActivity : ComponentActivity() {
           receivers = receivers,
           localNetworkAllowed = hasLocalNetworkAccess(),
           soundAllowed = soundAllowed,
+          keepAwake = keepAwake,
           onConnect = { startActivity(CaptureActivity.intent(this, it)) },
           onStop = { MirrorService.stop(this) },
           onAddTile = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !tileAdded) ::requestAddTile else null,
+          onKeepAwakeChange = ::changeKeepAwake,
         )
       }
     }
+  }
+
+  private fun changeKeepAwake(enabled: Boolean) {
+    SenderPrefs.setKeepAwake(this, enabled)
+    keepAwake = enabled
+    if (MirrorState.status.value.isActive) MirrorService.updateKeepAwake(this)
   }
 
   /** Asks Android to put the Beamline tile into Quick Settings (Android 13 and newer). */
@@ -154,9 +167,11 @@ fun SenderScreen(
   receivers: List<ReceiverAddress>,
   localNetworkAllowed: Boolean,
   soundAllowed: Boolean,
+  keepAwake: Boolean,
   onConnect: (ReceiverAddress) -> Unit,
   onStop: () -> Unit,
   onAddTile: (() -> Unit)?,
+  onKeepAwakeChange: (Boolean) -> Unit,
 ) {
   Scaffold { padding ->
     LazyColumn(
@@ -174,6 +189,7 @@ fun SenderScreen(
       if (onAddTile != null) {
         item { AddTileCard(onAddTile) }
       }
+      item { KeepAwakeSetting(keepAwake, onKeepAwakeChange) }
       if (!localNetworkAllowed) {
         item { Text(stringResource(R.string.local_network_needed), style = MaterialTheme.typography.bodyMedium) }
       }
@@ -238,6 +254,16 @@ private fun AddTileCard(onAddTile: () -> Unit) {
 }
 
 @Composable
+private fun KeepAwakeSetting(checked: Boolean, onChange: (Boolean) -> Unit) {
+  ListItem(
+    headlineContent = { Text(stringResource(R.string.keep_awake)) },
+    supportingContent = { Text(stringResource(R.string.keep_awake_explanation)) },
+    trailingContent = { Switch(checked = checked, onCheckedChange = null) },
+    modifier = Modifier.toggleable(value = checked, role = Role.Switch, onValueChange = onChange),
+  )
+}
+
+@Composable
 private fun ManualAddress(onConnect: (ReceiverAddress) -> Unit) {
   var address by remember { mutableStateOf("") }
   Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -275,9 +301,11 @@ private fun SenderScreenPreview() {
       receivers = listOf(ReceiverAddress("Fire TV Stick 4K Max", "192.168.1.50", Protocol.DEFAULT_PORT)),
       localNetworkAllowed = true,
       soundAllowed = true,
+      keepAwake = true,
       onConnect = {},
       onStop = {},
       onAddTile = {},
+      onKeepAwakeChange = {},
     )
   }
 }

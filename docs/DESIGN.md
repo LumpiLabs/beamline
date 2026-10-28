@@ -144,6 +144,10 @@ paired phones or to ask every time.
   playing its own audio unless the user mutes it.
 - **UI:** a receiver list with manual address entry, and a foreground service (type
   `mediaProjection`) with a notification that has a Stop action.
+- **Keep awake:** once the phone locks, Android stops sending the screen's picture, so
+  while mirroring the service keeps the screen on, dimmed, with a screen wake lock
+  (`FLAG_KEEP_SCREEN_ON` would need a Beamline window on screen, but the user is in
+  another app). On by default; a switch in the app turns it off, also mid-session.
 - **Quick Settings tile:** one tap mirrors to the last TV used (after Android's
   screen-sharing prompt), another tap stops; with no TV used yet it opens the app. On
   Android 13 and newer the app offers to add the tile. A small invisible activity shows
@@ -223,8 +227,9 @@ Planned for M3:
   [UxPlay #535](https://github.com/FDH2/UxPlay/issues/535).
 - Android 14+ asks for screen-capture consent at the start of every session. That is
   an Android rule, not something Beamline can skip.
-- When a phone locks, Android stops sending the screen's picture. A keep-awake option
-  is planned (M5); on the iPad, AirPlay video keeps playing while locked (M4).
+- When a phone locks, Android stops sending the screen's picture. The phone app keeps
+  the screen on while mirroring, but the power button still locks it. On the iPad,
+  AirPlay video keeps playing while locked (M4).
 
 ## Testing
 
