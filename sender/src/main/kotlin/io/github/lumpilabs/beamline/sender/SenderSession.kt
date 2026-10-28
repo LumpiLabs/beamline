@@ -68,7 +68,7 @@ class SenderSession(
   @Volatile private var lastCodecConfig: ByteArray? = null
 
   fun start() {
-    MirrorState.set(appContext,MirrorStatus.Connecting(target.name))
+    MirrorState.set(appContext, MirrorStatus.Connecting(target.name))
     thread(name = "beamline-connect", isDaemon = true) {
       try {
         connect()
@@ -136,7 +136,8 @@ class SenderSession(
       }
       when (message) {
         is RequestKeyframe -> handler.post { sendKeyframe() }
-        is Ping -> send(Pong(message.id, message.timeUs, SystemClock.elapsedRealtimeNanos() / 1000))
+        is Ping -> send(Pong(message.id, message.timeUs, nowUs()))
+        is Pong -> if (message.id % 10 == 0) Log.i(TAG, "Round trip ${(nowUs() - message.pingTimeUs) / 1000} ms")
         is Bye -> return
         else -> Unit
       }
@@ -159,7 +160,30 @@ class SenderSession(
       null,
       handler,
     )
+    handler.post(pingTask)
   }
+
+  /**
+   * Some encoders (for example on Samsung phones) don't repeat frames on a still screen. A ping
+   * every second keeps the TV from treating the silence as a lost connection, and measures the
+   * round trip.
+   */
+  private val pingTask = object : Runnable {
+    private var nextId = 0
+
+    override fun run() {
+      if (stopped.get()) return
+      try {
+        send(Ping(nextId++, nowUs()))
+      } catch (_: IOException) {
+        stop("Connection to the TV lost")
+        return
+      }
+      handler.postDelayed(this, PING_INTERVAL_MS)
+    }
+  }
+
+  private fun nowUs(): Long = SystemClock.elapsedRealtimeNanos() / 1000
 
   private fun startEncoder(size: VideoSize): ScreenEncoder {
     val fps = min(welcome.maxFps, MAX_FPS)
@@ -167,7 +191,7 @@ class SenderSession(
     val newEncoder = ScreenEncoder(size, fps, ScreenEncoder.bitrateFor(size, fps), encoderSink)
     encoder = newEncoder
     currentSize = size
-    MirrorState.set(appContext,MirrorStatus.Mirroring(target.name, size))
+    MirrorState.set(appContext, MirrorStatus.Mirroring(target.name, size))
     return newEncoder
   }
 
@@ -255,6 +279,7 @@ class SenderSession(
   private companion object {
     const val TAG = "BeamlineSender"
     const val CONNECT_TIMEOUT_MS = 5_000
+    const val PING_INTERVAL_MS = 1_000L
     const val MAX_FPS = 60
   }
 }
