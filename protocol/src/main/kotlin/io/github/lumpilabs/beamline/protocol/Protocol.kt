@@ -24,6 +24,21 @@ object Protocol {
   }
 }
 
+/** Reasons in [Bye] that the other side acts on; any other reason is shown as it is. */
+object ByeReasons {
+  /** Receiver: it is showing another sender. */
+  const val BUSY = "busy"
+
+  /** Receiver, while its app is closed: this sender never connected while the app was open. */
+  const val OPEN_APP = "open_app"
+
+  /** Receiver: the user left the TV app. */
+  const val APP_CLOSED = "app_closed"
+
+  /** Receiver: its screen didn't come up to show the picture. */
+  const val NO_SCREEN = "no_screen"
+}
+
 /** Codec names used in discovery records and control messages. */
 object Codecs {
   const val H264 = "h264"

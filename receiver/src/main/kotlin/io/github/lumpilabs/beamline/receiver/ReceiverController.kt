@@ -1,10 +1,14 @@
 package io.github.lumpilabs.beamline.receiver
 
 import android.content.Context
+import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.wifi.WifiManager
 import android.os.Build
+import android.os.PowerManager
+import android.util.Log
 import android.view.Surface
+import io.github.lumpilabs.beamline.protocol.ByeReasons
 import io.github.lumpilabs.beamline.protocol.FrameRateDetector.StandardRate
 import io.github.lumpilabs.beamline.protocol.VideoSize
 import java.io.IOException
@@ -22,8 +26,12 @@ sealed interface ReceiverState {
   data class Failed(val message: String) : ReceiverState
 }
 
-/** Owns the server and the network announcement while the TV app is in the foreground. */
-class ReceiverController(private val context: Context, private val tvName: String) : MirrorServer.Events {
+/**
+ * Owns the server and the network announcement. Where [ReceiverService] works, they keep running
+ * while the TV app is closed, so a phone that connected before can open the app by connecting;
+ * elsewhere they run only while the app is on screen. There is one per process, see [ReceiverApp].
+ */
+class ReceiverController(private val context: Context, val tvName: String) : MirrorServer.Events {
   private val _state = MutableStateFlow<ReceiverState>(ReceiverState.Idle(null))
   val state: StateFlow<ReceiverState> = _state
 
@@ -44,6 +52,10 @@ class ReceiverController(private val context: Context, private val tvName: Strin
   val showStats: StateFlow<Boolean> = _showStats
 
   @Volatile var surface: Surface? = null
+
+  /** Whether the TV app is on screen. Set on the main thread, read on session threads. */
+  @Volatile var isScreenShown = false
+    private set
 
   /**
    * Keeps Wi-Fi out of power saving while a phone mirrors: in power saving, the access point holds
@@ -80,6 +92,19 @@ class ReceiverController(private val context: Context, private val tvName: Strin
     wifiLock?.release()
   }
 
+  fun onScreenShown() {
+    isScreenShown = true
+  }
+
+  /**
+   * Leaving the TV app ends mirroring and tells the phone why: otherwise the phone would reconnect
+   * and pull the user back into the app. Without [ReceiverService], the server stops too.
+   */
+  fun onScreenHidden() {
+    isScreenShown = false
+    if (ReceiverService.isSupported) server?.endSession(ByeReasons.APP_CLOSED) else stop()
+  }
+
   fun showError(message: String) {
     _state.value = ReceiverState.Failed(message)
   }
@@ -92,12 +117,36 @@ class ReceiverController(private val context: Context, private val tvName: Strin
     ReceiverPrefs.setShowStats(context, _showStats.updateAndGet { !it })
   }
 
+  /**
+   * While the TV app is open, any sender may connect, and is remembered. While it's closed, only
+   * remembered senders may: connecting opens the app for them.
+   */
+  override fun refusal(senderId: String?): String? {
+    if (isScreenShown) {
+      senderId?.let { ReceiverPrefs.rememberSender(context, it) }
+      return null
+    }
+    return if (senderId != null && ReceiverPrefs.isKnownSender(context, senderId)) null else ByeReasons.OPEN_APP
+  }
+
   /** A sender reconnecting after a lost connection keeps its picture on screen until new frames come. */
   override fun onConnected(senderName: String) {
     wifiLock?.acquire()
     _state.update {
       if (it is ReceiverState.Connected && it.senderName == senderName) it else ReceiverState.Connected(senderName)
     }
+    if (!isScreenShown) bringToFront()
+  }
+
+  /** Wakes the TV, also from its screensaver, and opens the TV app to show the picture. */
+  private fun bringToFront() {
+    Log.i(TAG, "A known phone connected, opening the TV app")
+    // The newer way to wake the screen is an activity flag, but the activity isn't running yet.
+    @Suppress("DEPRECATION")
+    context.getSystemService(PowerManager::class.java)
+      ?.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP, "Beamline:wake")
+      ?.acquire(WAKE_MS)
+    context.startActivity(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
   }
 
   override fun onVideoSize(size: VideoSize) {
@@ -146,6 +195,10 @@ class ReceiverController(private val context: Context, private val tvName: Strin
   }
 
   private companion object {
+    const val TAG = "BeamlineTv"
+
+    /** Long enough for the TV app to come up and keep the screen on itself. */
+    const val WAKE_MS = 5_000L
     const val SWITCH_AFTER_REPORTS = 4
     const val SWITCH_BACK_AFTER_REPORTS = 15
     const val DEFAULT_HZ = 60f

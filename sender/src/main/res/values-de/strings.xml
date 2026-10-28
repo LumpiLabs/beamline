@@ -18,6 +18,9 @@
   <string name="error_unreachable">%1$s ist nicht erreichbar. Ist Beamline auf dem Fernseher offen, und sind beide im selben WLAN?</string>
   <string name="error_tv_busy">%1$s zeigt gerade ein anderes Gerät.</string>
   <string name="error_tv_declined">%1$s hat die Verbindung abgelehnt: %2$s</string>
+  <string name="error_tv_open_app">Öffne Beamline einmal auf %1$s, um dieses Handy zu verbinden. Danach öffnet es sich beim Verbinden von selbst.</string>
+  <string name="error_tv_app_closed">Beamline wurde auf %1$s geschlossen.</string>
+  <string name="error_tv_no_screen">%1$s konnte das Bild nicht zeigen. Öffne Beamline auf dem Fernseher und versuch es noch einmal.</string>
   <string name="error_not_beamline">%1$s hat nicht wie ein Beamline-Fernseher geantwortet.</string>
   <string name="error_connection_lost">Verbindung zu %1$s verloren.</string>
   <string name="error_encoder">Der Video-Encoder des Handys funktioniert nicht mehr.</string>

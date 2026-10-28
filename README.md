@@ -10,7 +10,10 @@ No ads, accounts, subscriptions or tracking. In English and German.
 
 ## How it works
 
-- **TV:** install the Beamline TV app on your Fire TV or Android TV.
+- **TV:** install the Beamline TV app on your Fire TV or Android TV and open it. On a
+  Fire TV, a phone that has mirrored to it once can later start mirroring with the TV
+  app closed: the TV wakes up and opens it by itself. Newer Android TVs need the app
+  open.
 - **iPad, iPhone, Mac:** open Screen Mirroring and pick the TV. No app needed.
 - **Android phones:** install the Beamline sender app and tap the TV in the app or
   in Quick Settings. While mirroring, the phone's screen stays on, dimmed, because

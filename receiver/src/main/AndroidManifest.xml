@@ -4,8 +4,13 @@
   <uses-permission android:name="android.permission.INTERNET" />
   <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
   <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
-  <!-- For the Wi-Fi lock that keeps Wi-Fi out of power saving while a phone mirrors. -->
+  <!-- For the Wi-Fi lock while a phone mirrors, and for waking the TV when a known phone connects. -->
   <uses-permission android:name="android.permission.WAKE_LOCK" />
+  <!-- Ready for phones in the background and after a restart, see ReceiverService. -->
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+  <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+  <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
   <uses-feature
     android:name="android.software.leanback"
@@ -13,8 +18,13 @@
   <uses-feature
     android:name="android.hardware.touchscreen"
     android:required="false" />
+  <!-- The Wi-Fi permissions above don't make Wi-Fi a must: TVs on Ethernet work too. -->
+  <uses-feature
+    android:name="android.hardware.wifi"
+    android:required="false" />
 
   <application
+    android:name=".ReceiverApp"
     android:allowBackup="false"
     android:dataExtractionRules="@xml/data_extraction_rules"
     android:fullBackupContent="false"
@@ -24,14 +34,29 @@
     android:supportsRtl="true"
     android:theme="@style/Theme.Beamline">
 
+    <!-- singleTask: a phone connecting brings the open app to the front instead of a second copy. -->
     <activity
       android:name=".MainActivity"
-      android:exported="true">
+      android:exported="true"
+      android:launchMode="singleTask">
       <intent-filter>
         <action android:name="android.intent.action.MAIN" />
         <category android:name="android.intent.category.LAUNCHER" />
         <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
       </intent-filter>
     </activity>
+
+    <service
+      android:name=".ReceiverService"
+      android:exported="false"
+      android:foregroundServiceType="connectedDevice" />
+
+    <receiver
+      android:name=".BootReceiver"
+      android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.BOOT_COMPLETED" />
+      </intent-filter>
+    </receiver>
   </application>
 </manifest>

@@ -3,7 +3,6 @@ package io.github.lumpilabs.beamline.receiver
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.provider.Settings
 import android.text.format.DateUtils
 import android.util.Log
 import android.view.KeyEvent
@@ -54,7 +53,7 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
-  private lateinit var controller: ReceiverController
+  private val controller get() = (application as ReceiverApp).controller
 
   private val requestLocalNetwork =
     registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -63,8 +62,9 @@ class MainActivity : ComponentActivity() {
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
-    val tvName = Settings.Global.getString(contentResolver, Settings.Global.DEVICE_NAME) ?: Build.MODEL
-    controller = ReceiverController(applicationContext, tvName)
+    val tvName = controller.tvName
+    // From now on the TV stays ready for phones in the background, also after a restart.
+    ReceiverService.start(this)
     setContent {
       MaterialTheme(colorScheme = darkColorScheme()) {
         val state by controller.state.collectAsState()
@@ -119,6 +119,7 @@ class MainActivity : ComponentActivity() {
 
   override fun onStart() {
     super.onStart()
+    controller.onScreenShown()
     if (hasLocalNetworkAccess()) {
       controller.start()
     } else {
@@ -127,7 +128,7 @@ class MainActivity : ComponentActivity() {
   }
 
   override fun onStop() {
-    controller.stop()
+    controller.onScreenHidden()
     super.onStop()
   }
 

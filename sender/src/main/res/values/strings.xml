@@ -19,6 +19,9 @@
   <string name="error_unreachable">Couldn\'t reach %1$s. Is Beamline open on the TV, and are both on the same Wi-Fi?</string>
   <string name="error_tv_busy">%1$s is showing another device.</string>
   <string name="error_tv_declined">%1$s turned the connection down: %2$s</string>
+  <string name="error_tv_open_app">Open Beamline on %1$s once to connect this phone. After that, connecting opens it by itself.</string>
+  <string name="error_tv_app_closed">Beamline was closed on %1$s.</string>
+  <string name="error_tv_no_screen">%1$s couldn\'t show the picture. Open Beamline on the TV and try again.</string>
   <string name="error_not_beamline">%1$s didn\'t answer like a Beamline TV.</string>
   <string name="error_connection_lost">Lost the connection to %1$s.</string>
   <string name="error_encoder">The phone\'s video encoder stopped working.</string>

@@ -86,7 +86,9 @@ peers can add both. Messages: `hello` (versions, device name, capabilities, and 
 `welcome` (chosen version, stream limits, and the audio and video codecs the receiver
 plays; a receiver that lists no video codecs takes H.264), `stream` (codec, width, height, fps,
 rotation, sent before each new video config), `request_keyframe`, `bitrate_hint`,
-`ping`/`pong` (round-trip time and clock offset), `stats`, and `bye` (with reason).
+`ping`/`pong` (round-trip time and clock offset), `stats`, and `bye` (with reason; the
+receiver's reasons "busy", "open_app", "app_closed" and "no_screen" get their own
+message on the phone, others are shown as they are).
 Both sides ping once a second. The sender's `time_us` in pings and pongs is on the
 same clock as its `pts_us`, so the receiver can work out from the round trips how far
 its picture is behind the sender's screen.
@@ -201,6 +203,20 @@ paired phones or to ask every time.
   chunks, skipped sound, restarts). Counts carry over a reconnect. The delay runs
   from capture on the phone to the TV handing the frame to its screen, so the TV's
   own picture processing comes on top. The same figures go to the log once a minute.
+- **Ready in the background:** on Fire OS 6 and 7 (Android 7.1 to 9) a foreground
+  service keeps the server and the network announcement up while the TV app is
+  closed; it starts when the app is first opened and again after the TV boots. A phone
+  that connected once while the app was open (its `sender_id` is remembered) can then
+  start mirroring with the app closed: the TV wakes, also from its screensaver, and
+  brings the app to the front, and the session waits up to 4 seconds for the screen.
+  Other phones get `bye` "open_app" and are told to open Beamline on the TV first; the
+  id isn't secret, so this only keeps strangers' phones from popping up until pairing
+  (M3) does it properly. Android 10 and newer don't let an app open itself from the
+  background without the "display over other apps" permission, so there the server
+  runs only while the app is open.
+- **Leaving the app:** Home or Back while mirroring ends the session with `bye`
+  "app_closed", so the phone stops and says why instead of reconnecting and pulling
+  the user back into the app.
 - **Sessions:** one active stream at a time. A second sender gets a "TV is busy"
   answer, or replaces the current stream if the user allows that in settings. The TV
   ends a session after 10 seconds without data. A phone that comes back sooner (same

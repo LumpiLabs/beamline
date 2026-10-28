@@ -5,6 +5,7 @@ import android.view.Surface
 import androidx.annotation.StringRes
 import io.github.lumpilabs.beamline.protocol.AudioConfig
 import io.github.lumpilabs.beamline.protocol.Bye
+import io.github.lumpilabs.beamline.protocol.ByeReasons
 import io.github.lumpilabs.beamline.protocol.ClockSync
 import io.github.lumpilabs.beamline.protocol.Codecs
 import io.github.lumpilabs.beamline.protocol.Control
@@ -45,6 +46,9 @@ class MirrorServer(
   private val events: Events,
 ) {
   interface Events {
+    /** Null to let [senderId] mirror, or the reason for the `bye` that turns it away. */
+    fun refusal(senderId: String?): String?
+
     fun onConnected(senderName: String)
 
     fun onVideoSize(size: VideoSize)
@@ -99,7 +103,12 @@ class MirrorServer(
   fun stop() {
     runCatching { serverSocket?.close() }
     serverSocket = null
-    synchronized(lock) { active }?.close()
+    endSession(ByeReasons.APP_CLOSED)
+  }
+
+  /** Ends the session on screen, if any, telling the sender [byeReason]. Doesn't block. */
+  fun endSession(byeReason: String) {
+    synchronized(lock) { active }?.end(byeReason)
   }
 
   private fun acceptLoop(server: ServerSocket) {
@@ -154,6 +163,9 @@ class MirrorServer(
     private var loggedMinute = -1L
     private val ended = CountDownLatch(1)
 
+    /** The TV ended the session on purpose, so its end is no error. */
+    @Volatile private var endedByTv = false
+
     @Volatile var senderId: String? = null
       private set
 
@@ -170,20 +182,28 @@ class MirrorServer(
           send(Bye("unsupported protocol version"))
           return
         }
+        events.refusal(hello.senderId)?.let {
+          Log.i(TAG, "Turned ${hello.name} away: $it")
+          send(Bye(it))
+          return
+        }
         claimed = claim(this, hello.senderId)
         if (!claimed) {
-          send(Bye("busy"))
+          send(Bye(ByeReasons.BUSY))
           return
         }
         send(Welcome(version, tvName, MAX_SIZE.width, MAX_SIZE.height, MAX_FPS, listOf(Codecs.OPUS), videoCodecs))
         events.onConnected(hello.name)
         stream()
       } catch (e: IOException) {
-        reason = when (e) {
-          is SenderSilentException -> EndReason.SENDER_SILENT
-          is ScreenNotReadyException -> EndReason.SCREEN_NOT_READY
+        reason = when {
+          endedByTv -> null
+          e is SenderSilentException -> EndReason.SENDER_SILENT
+          e is ScreenNotReadyException -> EndReason.SCREEN_NOT_READY
           else -> EndReason.CONNECTION_LOST
         }
+        // Without a bye, the phone would take this for a lost connection and keep reconnecting.
+        if (e is ScreenNotReadyException) runCatching { send(Bye(ByeReasons.NO_SCREEN)) }
         Log.i(TAG, "Session ended: ${e.message}")
       } catch (e: RuntimeException) {
         reason = EndReason.FAILED
@@ -197,6 +217,18 @@ class MirrorServer(
 
     fun close() {
       runCatching { socket.close() }
+    }
+
+    /**
+     * Says bye with [byeReason], so the sender stops instead of reconnecting, and closes. A stalled
+     * connection could block the write, so it happens on its own thread.
+     */
+    fun end(byeReason: String) {
+      endedByTv = true
+      thread(name = "beamline-bye", isDaemon = true) {
+        runCatching { send(Bye(byeReason)) }
+        close()
+      }
     }
 
     fun awaitEnd() {
@@ -321,8 +353,12 @@ class MirrorServer(
       events.onVideoSize(VideoSize(newConfig.width, newConfig.height))
     }
 
+    /**
+     * Waits for the screen's surface, which takes a moment when connecting has just opened the TV
+     * app. Meanwhile nothing is read, so the wait stays under the sender's 5 s link timeout.
+     */
     private fun awaitSurface(): Surface? {
-      repeat(20) {
+      repeat(SURFACE_WAIT_MS / 50) {
         videoSurface()?.takeIf { it.isValid }?.let { return it }
         Thread.sleep(50)
       }
@@ -371,6 +407,7 @@ class MirrorServer(
 
     /** How long a reconnecting sender waits for its old session to let go of the screen. */
     private const val REPLACE_TIMEOUT_MS = 3_000L
+    private const val SURFACE_WAIT_MS = 4_000
 
     /** A larger delay means the sender's pongs use another clock than its frames (older apps). */
     private const val MAX_PLAUSIBLE_DELAY_NS = 5_000_000_000L

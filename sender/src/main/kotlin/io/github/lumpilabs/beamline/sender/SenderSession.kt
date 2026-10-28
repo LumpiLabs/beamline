@@ -21,6 +21,7 @@ import android.view.Surface
 import androidx.core.content.ContextCompat
 import io.github.lumpilabs.beamline.protocol.AudioConfig
 import io.github.lumpilabs.beamline.protocol.Bye
+import io.github.lumpilabs.beamline.protocol.ByeReasons
 import io.github.lumpilabs.beamline.protocol.Codecs
 import io.github.lumpilabs.beamline.protocol.Control
 import io.github.lumpilabs.beamline.protocol.ControlCodec
@@ -180,11 +181,11 @@ class SenderSession(
       if (connectedOnce) Log.i(TAG, "Reconnected after ${SystemClock.elapsedRealtime() - lostAtMs} ms")
       connectedOnce = true
       handler.post { attach(current) }
-      val tvSaidBye = readControl(current)
+      val bye = readControl(current)
       link.compareAndSet(current, null)
       runCatching { current.socket.close() }
-      if (tvSaidBye || stopped.get()) {
-        stop(null)
+      if (bye != null || stopped.get()) {
+        stop(bye?.let(::byeMessage))
         return
       }
       lostAtMs = SystemClock.elapsedRealtime()
@@ -225,7 +226,8 @@ class SenderSession(
   /** Why the first connection failed, in words for the user rather than the system's. */
   private fun connectFailure(e: IOException): String =
     when {
-      e is TvDeclined && e.reason == "busy" -> appContext.getString(R.string.error_tv_busy, target.name)
+      e is TvDeclined && e.reason == ByeReasons.BUSY -> appContext.getString(R.string.error_tv_busy, target.name)
+      e is TvDeclined && e.reason == ByeReasons.OPEN_APP -> appContext.getString(R.string.error_tv_open_app, target.name)
       e is TvDeclined -> appContext.getString(R.string.error_tv_declined, target.name, e.reason)
       e is ProtocolException -> appContext.getString(R.string.error_not_beamline, target.name)
       else -> appContext.getString(R.string.error_unreachable, target.name)
@@ -234,20 +236,31 @@ class SenderSession(
   /** The TV answered the handshake with `bye`. */
   private class TvDeclined(val reason: String) : IOException("The TV declined: $reason")
 
+  /** What to show when the TV ends mirroring with [bye], or null for an ordinary end. */
+  private fun byeMessage(bye: Bye): String? =
+    when (bye.reason) {
+      ByeReasons.APP_CLOSED -> appContext.getString(R.string.error_tv_app_closed, target.name)
+      ByeReasons.NO_SCREEN -> appContext.getString(R.string.error_tv_no_screen, target.name)
+      else -> null
+    }
+
   private fun readControlMessage(reader: FrameReader): Control? {
     val frame = reader.read() ?: return null
     return if (frame.type == FrameType.CONTROL) ControlCodec.decode(frame.body) else null
   }
 
-  /** Handles the TV's messages. Returns true when the TV said bye, false when the link broke. */
-  private fun readControl(current: Link): Boolean {
+  /**
+   * Handles the TV's messages. Returns the TV's bye, or null when the link broke. Once the session
+   * is stopped, it doesn't matter which.
+   */
+  private fun readControl(current: Link): Bye? {
     while (!stopped.get()) {
       val frame = try {
         current.reader.read()
       } catch (e: IOException) {
         if (!stopped.get()) Log.i(TAG, "Connection lost: ${e.message}")
-        return false
-      } ?: return false
+        return null
+      } ?: return null
       if (frame.type != FrameType.CONTROL) continue
       val message = try {
         ControlCodec.decode(frame.body)
@@ -258,11 +271,11 @@ class SenderSession(
         is RequestKeyframe -> handler.post { sendKeyframe() }
         is Ping -> send(Pong(message.id, message.timeUs, nowUs()))
         is Pong -> if (message.id % 10 == 0) Log.i(TAG, "Round trip ${(nowUs() - message.pingTimeUs) / 1000} ms")
-        is Bye -> return true
+        is Bye -> return message
         else -> Unit
       }
     }
-    return true
+    return null
   }
 
   /** Starts capture on the first connection; after a reconnect, tells the TV what is coming. */
