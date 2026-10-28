@@ -1,0 +1,52 @@
+name: Bug report
+description: Something doesn't work, stutters or sounds wrong.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Security problems go through [SECURITY.md](https://github.com/LumpiLabs/beamline/blob/main/SECURITY.md) instead.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: input
+    id: phone
+    attributes:
+      label: Phone
+      description: Model and Android version.
+      placeholder: Galaxy S26+, Android 17
+    validations:
+      required: true
+  - type: input
+    id: tv
+    attributes:
+      label: TV
+      description: Model and Fire OS or Android TV version.
+      placeholder: Fire TV Stick 4K Max, Fire OS 7
+    validations:
+      required: true
+  - type: input
+    id: network
+    attributes:
+      label: Network
+      description: How the phone and the TV are connected.
+      placeholder: Both on 5 GHz Wi-Fi, TV close to the router
+  - type: input
+    id: content
+    attributes:
+      label: What was mirrored
+      placeholder: A 25 fps live stream in a browser
+  - type: textarea
+    id: stats
+    attributes:
+      label: TV statistics
+      description: Press Menu on the TV remote while mirroring and add a photo, or copy the numbers.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: If you can use adb, run `adb logcat -d -v time > beamline.log` on each device right after the problem and attach the files. Look through them first.

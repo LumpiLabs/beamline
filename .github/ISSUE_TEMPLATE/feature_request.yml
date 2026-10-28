@@ -1,0 +1,19 @@
+name: Idea
+description: Something Beamline should do, or do differently.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have a look at the [roadmap](https://github.com/LumpiLabs/beamline/blob/main/docs/ROADMAP.md) first: it may be planned already.
+  - type: textarea
+    id: need
+    attributes:
+      label: What you want to do
+      description: The situation and what gets in the way today. This matters more than a ready solution.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: How it could work

@@ -1,5 +1,8 @@
 # Beamline
 
+[![Build](https://github.com/LumpiLabs/beamline/actions/workflows/build.yml/badge.svg)](https://github.com/LumpiLabs/beamline/actions/workflows/build.yml)
+[![License: GPL v3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
+
 Free, open-source screen mirroring to Fire TV and Android TV: one TV app for iPads,
 iPhones and Macs (over AirPlay) and Android phones (with the Beamline sender app).
 No ads, accounts, subscriptions or tracking. In English and German.
@@ -69,6 +72,14 @@ ffmpeg -f lavfi -i sine=frequency=440:duration=5 -af volume=0.1 -ac 2 -c:a libop
 ```
 
 Add `--hiccup=10` to hold everything back for one second at second 10 and then send it at once, like Wi-Fi that stalls for a moment.
+
+## Contributing
+
+Bug reports, ideas, translations and code are welcome: see
+[CONTRIBUTING.md](CONTRIBUTING.md) and the [code of conduct](CODE_OF_CONDUCT.md).
+Report security problems privately, as described in [SECURITY.md](SECURITY.md); it
+also lists what isn't protected yet. Beamline collects nothing about you, see
+[PRIVACY.md](PRIVACY.md). Changes are listed in the [changelog](CHANGELOG.md).
 
 ## License
 

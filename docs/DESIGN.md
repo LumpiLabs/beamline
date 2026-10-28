@@ -260,7 +260,7 @@ Planned for M3:
 ## Testing
 
 - `protocol`: JVM unit tests for framing, CBOR messages and pairing codes.
-- Device tests over adb: the Fire TV (10.10.20.150) plus both phones over wireless
+- Device tests over adb: the Fire TV plus both phones over wireless
   debugging. Scripts install builds, start sessions and pull logs and statistics.
 - `tools/test-sender` streams a test pattern, optionally with sound from an Ogg Opus
   file, to the TV from a PC, so the TV app can be checked without a phone. With
