@@ -43,7 +43,7 @@ class MirrorService : Service() {
     startForeground(NOTIFICATION_ID, notification(target.name), ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
     val projection = getSystemService(MediaProjectionManager::class.java).getMediaProjection(resultCode, data)
     if (projection == null) {
-      MirrorState.set(MirrorStatus.Failed(getString(R.string.error_capture_denied)))
+      MirrorState.set(this, MirrorStatus.Failed(getString(R.string.error_capture_denied)))
       stopSelf()
       return START_NOT_STICKY
     }

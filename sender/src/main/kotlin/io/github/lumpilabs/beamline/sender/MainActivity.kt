@@ -1,15 +1,16 @@
 package io.github.lumpilabs.beamline.sender
 
 import android.Manifest
-import android.app.Activity
+import android.app.StatusBarManager
 import android.content.pm.PackageManager
-import android.media.projection.MediaProjectionManager
+import android.graphics.drawable.Icon
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.RequiresApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -22,6 +23,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -51,25 +53,16 @@ import io.github.lumpilabs.beamline.protocol.VideoSize
 
 class MainActivity : ComponentActivity() {
   private lateinit var discovery: ReceiverDiscovery
-  private var pendingTarget: ReceiverAddress? = null
+  private var tileAdded by mutableStateOf(false)
 
   private val requestPermissions =
     registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { startDiscoveryIfAllowed() }
-
-  private val requestCapture =
-    registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-      val target = pendingTarget
-      val data = result.data
-      pendingTarget = null
-      if (result.resultCode == Activity.RESULT_OK && data != null && target != null) {
-        MirrorService.start(this, result.resultCode, data, target)
-      }
-    }
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     enableEdgeToEdge()
     discovery = ReceiverDiscovery(applicationContext)
+    tileAdded = SenderPrefs.isTileAdded(this)
     setContent {
       BeamlineTheme {
         val status by MirrorState.status.collectAsState()
@@ -78,9 +71,28 @@ class MainActivity : ComponentActivity() {
           status = status,
           receivers = receivers,
           localNetworkAllowed = hasLocalNetworkAccess(),
-          onConnect = ::startMirroring,
+          onConnect = { startActivity(CaptureActivity.intent(this, it)) },
           onStop = { MirrorService.stop(this) },
+          onAddTile = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !tileAdded) ::requestAddTile else null,
         )
+      }
+    }
+  }
+
+  /** Asks Android to put the Beamline tile into Quick Settings (Android 13 and newer). */
+  @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+  private fun requestAddTile() {
+    getSystemService(StatusBarManager::class.java).requestAddTileService(
+      MirrorTileService.component(this),
+      getString(R.string.app_name),
+      Icon.createWithResource(this, R.drawable.ic_notification),
+      mainExecutor,
+    ) { result ->
+      if (result == StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ADDED ||
+        result == StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ALREADY_ADDED
+      ) {
+        SenderPrefs.setTileAdded(this)
+        tileAdded = true
       }
     }
   }
@@ -101,12 +113,6 @@ class MainActivity : ComponentActivity() {
 
   private fun startDiscoveryIfAllowed() {
     if (hasLocalNetworkAccess()) discovery.start()
-  }
-
-  private fun startMirroring(target: ReceiverAddress) {
-    pendingTarget = target
-    val projectionManager = getSystemService(MediaProjectionManager::class.java)
-    requestCapture.launch(projectionManager.createScreenCaptureIntent())
   }
 
   private fun hasLocalNetworkAccess(): Boolean =
@@ -141,6 +147,7 @@ fun SenderScreen(
   localNetworkAllowed: Boolean,
   onConnect: (ReceiverAddress) -> Unit,
   onStop: () -> Unit,
+  onAddTile: (() -> Unit)?,
 ) {
   Scaffold { padding ->
     LazyColumn(
@@ -155,6 +162,9 @@ fun SenderScreen(
         )
       }
       item { StatusCard(status, onStop) }
+      if (onAddTile != null) {
+        item { AddTileCard(onAddTile) }
+      }
       if (!localNetworkAllowed) {
         item { Text(stringResource(R.string.local_network_needed), style = MaterialTheme.typography.bodyMedium) }
       }
@@ -205,6 +215,16 @@ private fun StatusCard(status: MirrorStatus, onStop: () -> Unit) {
 }
 
 @Composable
+private fun AddTileCard(onAddTile: () -> Unit) {
+  Card(Modifier.fillMaxWidth()) {
+    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+      Text(stringResource(R.string.add_tile_explanation), style = MaterialTheme.typography.bodyMedium)
+      FilledTonalButton(onClick = onAddTile) { Text(stringResource(R.string.add_tile)) }
+    }
+  }
+}
+
+@Composable
 private fun ManualAddress(onConnect: (ReceiverAddress) -> Unit) {
   var address by remember { mutableStateOf("") }
   Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -243,6 +263,7 @@ private fun SenderScreenPreview() {
       localNetworkAllowed = true,
       onConnect = {},
       onStop = {},
+      onAddTile = {},
     )
   }
 }

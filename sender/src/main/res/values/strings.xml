@@ -14,6 +14,10 @@
   <string name="connect">Connect</string>
   <string name="local_network_needed">Beamline needs access to your local network to find and reach the TV. Allow it in the app settings.</string>
   <string name="error_capture_denied">Screen capture wasn\'t allowed.</string>
+  <string name="add_tile_explanation">Start and stop mirroring with one tap from Quick Settings, next to Smart View.</string>
+  <string name="add_tile">Add to Quick Settings</string>
+  <string name="tile_connecting">Connecting…</string>
+  <string name="tile_pick_tv">Tap to pick a TV</string>
   <string name="notification_channel">Mirroring</string>
   <string name="notification_title">Mirroring to %1$s</string>
 </resources>

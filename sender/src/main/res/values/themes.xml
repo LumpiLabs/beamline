@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
   <style name="Theme.Beamline" parent="android:Theme.Material.Light.NoActionBar" />
+
+  <!-- For CaptureActivity: only Android's screen-sharing prompt is visible. -->
+  <style name="Theme.Beamline.Transparent" parent="android:Theme.Translucent.NoTitleBar" />
 </resources>

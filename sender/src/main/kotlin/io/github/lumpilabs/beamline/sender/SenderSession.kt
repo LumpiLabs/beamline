@@ -68,7 +68,7 @@ class SenderSession(
   @Volatile private var lastCodecConfig: ByteArray? = null
 
   fun start() {
-    MirrorState.set(MirrorStatus.Connecting(target.name))
+    MirrorState.set(appContext,MirrorStatus.Connecting(target.name))
     thread(name = "beamline-connect", isDaemon = true) {
       try {
         connect()
@@ -87,7 +87,7 @@ class SenderSession(
   /** Ends the session. A non-null [error] is shown to the user. Safe to call from any thread. */
   fun stop(error: String?) {
     if (stopped.getAndSet(true)) return
-    MirrorState.set(if (error != null) MirrorStatus.Failed(error) else MirrorStatus.Idle)
+    MirrorState.set(appContext,if (error != null) MirrorStatus.Failed(error) else MirrorStatus.Idle)
     runCatching { writer.write(ControlCodec.toFrame(Bye(if (error != null) "error" else "stopped"))) }
     handler.post {
       displayManager.unregisterDisplayListener(displayListener)
@@ -167,7 +167,7 @@ class SenderSession(
     val newEncoder = ScreenEncoder(size, fps, ScreenEncoder.bitrateFor(size, fps), encoderSink)
     encoder = newEncoder
     currentSize = size
-    MirrorState.set(MirrorStatus.Mirroring(target.name, size))
+    MirrorState.set(appContext,MirrorStatus.Mirroring(target.name, size))
     return newEncoder
   }
 

@@ -121,9 +121,12 @@ paired phones or to ask every time.
 - **Audio:** `AudioPlaybackCaptureConfiguration` (usages media, game and unknown),
   48 kHz stereo PCM, encoded to Opus at 128 kbit/s with 10 ms frames. The phone keeps
   playing its own audio unless the user mutes it.
-- **UI:** a receiver list, a Quick Settings tile for starting and stopping, and a
-  foreground service (type `mediaProjection`) with a notification that has a Stop
-  action.
+- **UI:** a receiver list with manual address entry, and a foreground service (type
+  `mediaProjection`) with a notification that has a Stop action.
+- **Quick Settings tile:** one tap mirrors to the last TV used (after Android's
+  screen-sharing prompt), another tap stops; with no TV used yet it opens the app. On
+  Android 13 and newer the app offers to add the tile. A small invisible activity shows
+  the prompt, because a tile can't show it itself.
 
 ## Receiver (TV)
 
