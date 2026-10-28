@@ -17,7 +17,7 @@ import androidx.core.content.IntentCompat
  * service to be in the foreground before the capture token can be used.
  */
 class MirrorService : Service() {
-  private var session: SenderSession? = null
+  @Volatile private var session: SenderSession? = null
 
   override fun onBind(intent: Intent?): IBinder? = null
 
@@ -47,8 +47,14 @@ class MirrorService : Service() {
       stopSelf()
       return START_NOT_STICKY
     }
-    session?.stop(null)
-    session = SenderSession(this, projection, target) { stopSelf() }.also { it.start() }
+    // Mirroring to another TV replaces the session. The old one ending must not stop the service,
+    // or the new session would go down with it.
+    val previous = session
+    lateinit var started: SenderSession
+    started = SenderSession(this, projection, target) { if (session === started) stopSelf() }
+    session = started
+    previous?.stop(null)
+    started.start()
     return START_NOT_STICKY
   }
 
