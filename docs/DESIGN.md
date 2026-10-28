@@ -168,7 +168,8 @@ paired phones or to ask every time.
   TV for a moment.
 - **Fill or fit:** landscape pictures fill the screen by default, cropping the phone's
   black side bars; OK on the remote toggles to showing the whole picture. Portrait
-  pictures are always shown whole.
+  pictures are always shown whole. The TV remembers the choice, and whether the
+  statistics are showing, across restarts.
 - **Audio:** Opus decoded with `MediaCodec`, played through a normal mixer `AudioTrack`.
   Playback starts once 300 ms is queued, and a chunk is dropped when more than 600 ms
   piles up. A burst can leave the queue near that limit for good (a reconnect while

@@ -10,6 +10,7 @@ import java.net.Inet4Address
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.updateAndGet
 
 sealed interface ReceiverState {
   data class Idle(val address: String?, val lastError: String? = null) : ReceiverState
@@ -25,7 +26,7 @@ class ReceiverController(private val context: Context, private val tvName: Strin
   val state: StateFlow<ReceiverState> = _state
 
   /** Fill the screen (crop a wider picture) instead of showing all of it with black bars. */
-  private val _fill = MutableStateFlow(true)
+  private val _fill = MutableStateFlow(ReceiverPrefs.fill(context))
   val fill: StateFlow<Boolean> = _fill
 
   /** Display refresh rate that shows the content evenly, or null for the TV's default. */
@@ -36,8 +37,8 @@ class ReceiverController(private val context: Context, private val tvName: Strin
   private val _stats = MutableStateFlow<StatsSnapshot?>(null)
   val stats: StateFlow<StatsSnapshot?> = _stats
 
-  /** Whether the statistics overlay is on; it stays on for the next sender until switched off. */
-  private val _showStats = MutableStateFlow(false)
+  /** Whether the statistics overlay is on; it stays on, also after a restart, until switched off. */
+  private val _showStats = MutableStateFlow(ReceiverPrefs.showStats(context))
   val showStats: StateFlow<Boolean> = _showStats
 
   @Volatile var surface: Surface? = null
@@ -72,11 +73,11 @@ class ReceiverController(private val context: Context, private val tvName: Strin
   }
 
   fun toggleFill() {
-    _fill.update { !it }
+    ReceiverPrefs.setFill(context, _fill.updateAndGet { !it })
   }
 
   fun toggleStats() {
-    _showStats.update { !it }
+    ReceiverPrefs.setShowStats(context, _showStats.updateAndGet { !it })
   }
 
   /** A sender reconnecting after a lost connection keeps its picture on screen until new frames come. */
