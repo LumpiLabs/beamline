@@ -59,6 +59,8 @@ ffmpeg -f lavfi -i sine=frequency=440:duration=5 -af volume=0.1 -ac 2 -c:a libop
 ./gradlew :test-sender:run --args="192.168.1.50 47800 30 25 $PWD/tone.ogg"
 ```
 
+Add `--hiccup=10` to hold everything back for one second at second 10 and then send it at once, like Wi-Fi that stalls for a moment.
+
 ## License
 
 GPLv3. See [LICENSE](LICENSE). The AirPlay receiver is based on

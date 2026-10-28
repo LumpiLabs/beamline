@@ -18,7 +18,9 @@ import io.github.lumpilabs.beamline.protocol.StreamConfig
 import io.github.lumpilabs.beamline.protocol.VideoSize
 import io.github.lumpilabs.beamline.protocol.Welcome
 import java.io.File
+import java.io.FilterOutputStream
 import java.io.IOException
+import java.io.OutputStream
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.util.concurrent.ConcurrentHashMap
@@ -26,25 +28,29 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.thread
 import kotlin.system.exitProcess
 
-private const val USAGE = "Usage: test-sender <host> [port] [seconds] [fps] [sound.ogg]"
+private const val USAGE = "Usage: test-sender <host> [port] [seconds] [fps] [sound.ogg] [--hiccup=<second>]"
 private const val SENDER_ID = "beamline-test-sender"
+private const val HICCUP_MS = 1_000L
 
 /**
  * Streams a test pattern to a Beamline TV, for testing the TV app without a phone. An Ogg Opus
  * file, for example from `ffmpeg -f lavfi -i sine=frequency=440:duration=5 -ac 2 -c:a libopus
- * tone.ogg`, is sent as sound in a loop.
+ * tone.ogg`, is sent as sound in a loop. `--hiccup=<second>` holds everything back for a second at
+ * that point and then sends it at once, like Wi-Fi that stalls for a moment.
  *
- * Usage: `test-sender <host> [port] [seconds] [fps] [sound.ogg]`
+ * Usage: `test-sender <host> [port] [seconds] [fps] [sound.ogg] [--hiccup=<second>]`
  */
 fun main(args: Array<String>) {
-  val host = args.getOrNull(0) ?: run {
+  val positional = args.filterNot { it.startsWith("--") }
+  val host = positional.getOrNull(0) ?: run {
     System.err.println(USAGE)
     exitProcess(2)
   }
-  val port = args.getOrNull(1)?.toInt() ?: Protocol.DEFAULT_PORT
-  val seconds = args.getOrNull(2)?.toInt() ?: 20
-  val fps = args.getOrNull(3)?.toInt() ?: 30
-  val sound = args.getOrNull(4)?.let { OggOpus.read(File(it)) }
+  val port = positional.getOrNull(1)?.toInt() ?: Protocol.DEFAULT_PORT
+  val seconds = positional.getOrNull(2)?.toInt() ?: 20
+  val fps = positional.getOrNull(3)?.toInt() ?: 30
+  val sound = positional.getOrNull(4)?.let { OggOpus.read(File(it)) }
+  val hiccupAt = args.firstOrNull { it.startsWith("--hiccup=") }?.substringAfter('=')?.toInt()
   val size = VideoSize(1280, 720)
 
   print("Encoding test pattern... ")
@@ -55,7 +61,8 @@ fun main(args: Array<String>) {
     socket.tcpNoDelay = true
     socket.connect(InetSocketAddress(host, port), 5_000)
     socket.soTimeout = 5_000
-    val writer = FrameWriter(socket.getOutputStream())
+    val output = HiccupStream(socket.getOutputStream())
+    val writer = FrameWriter(output)
     val reader = FrameReader(socket.getInputStream())
 
     val audioCodecs = if (sound != null) listOf(Codecs.OPUS) else emptyList()
@@ -95,6 +102,7 @@ fun main(args: Array<String>) {
     writer.write(ControlCodec.toFrame(StreamConfig(Codecs.H264, size.width, size.height, fps)))
     writer.write(Frame(FrameType.VIDEO, FrameFlags.CODEC_CONFIG, 0, clip.codecConfig))
     val start = System.nanoTime()
+    hiccupAt?.let { output.dueNs = start + it * 1_000_000_000L }
     val audio = sound?.takeIf { Codecs.OPUS in welcome.audioCodecs }?.let { opus ->
       writer.write(ControlCodec.toFrame(AudioConfig(Codecs.OPUS, 48_000, opus.channels)))
       writer.write(Frame(FrameType.AUDIO, FrameFlags.CODEC_CONFIG, 0, opus.header))
@@ -136,6 +144,23 @@ private fun sendSound(writer: FrameWriter, opus: OggOpus, start: Long, seconds: 
     writer.write(Frame(FrameType.AUDIO, 0, ptsUs, packet))
     ptsUs += OggOpus.durationUs(packet)
     sleepUntil(start + ptsUs * 1000)
+  }
+}
+
+/**
+ * Once [dueNs] has passed, blocks the next write for [HICCUP_MS]. The frame writer holds its lock
+ * meanwhile, so video and sound both stall and then catch up in one burst.
+ */
+private class HiccupStream(private val out: OutputStream) : FilterOutputStream(out) {
+  @Volatile var dueNs = Long.MAX_VALUE
+
+  override fun write(b: ByteArray, off: Int, len: Int) {
+    if (System.nanoTime() >= dueNs) {
+      dueNs = Long.MAX_VALUE
+      println("Holding everything back for $HICCUP_MS ms")
+      Thread.sleep(HICCUP_MS)
+    }
+    out.write(b, off, len)
   }
 }
 

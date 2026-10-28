@@ -164,7 +164,12 @@ paired phones or to ask every time.
   pictures are always shown whole.
 - **Audio:** Opus decoded with `MediaCodec`, played through a normal mixer `AudioTrack`.
   Playback starts once 300 ms is queued, and a chunk is dropped when more than 600 ms
-  piles up (clock drift over a long session). Before Android 12 a started or flushed
+  piles up. A burst can leave the queue near that limit for good (a reconnect while
+  the TV sets up its decoder, or a refresh-rate switch pausing the TV's audio output),
+  adding delay and leaving no room for Wi-Fi bunching. So when even the queue's lowest
+  level over 2 seconds stays 100 ms above the 300 ms cushion, the excess is skipped
+  once, in one piece; the same handles clock drift over a long session. Before
+  Android 12 a started or flushed
   track only plays once its whole buffer is full, so while filling, the track's usable
   size is shrunk to the 300 ms start cushion and grown back once the mixer takes it. A
   track whose position stops moving for 300 ms (for example after a refresh-rate switch
@@ -199,10 +204,6 @@ Planned for M3:
   (decode queue length, late frames).
 - `ping`/`pong` every second already measures round-trip time; the statistics overlay
   will show it with the end-to-end delay.
-- After a burst of sound (a reconnect while the TV is still setting up its decoder, or
-  a refresh-rate switch), the TV's sound buffer can stay near its 600 ms limit instead
-  of 300 ms until the next restart. Sync is unaffected, but the delay is higher and
-  there is less room before chunks are dropped. The buffer should shrink back.
 
 ## Known limits
 
@@ -222,7 +223,9 @@ Planned for M3:
 - Device tests over adb: the Fire TV (10.10.20.150) plus both phones over wireless
   debugging. Scripts install builds, start sessions and pull logs and statistics.
 - `tools/test-sender` streams a test pattern, optionally with sound from an Ogg Opus
-  file, to the TV from a PC, so the TV app can be checked without a phone.
+  file, to the TV from a PC, so the TV app can be checked without a phone. With
+  `--hiccup=<second>` it stalls for a second and then sends everything at once, like
+  Wi-Fi; `--hiccup=0` gives the burst a reconnecting phone causes.
 - Latency: the statistics overlay plus a stopwatch-style test pattern in the sender
   app, filmed with a phone camera for a glass-to-glass check.
 - CI: GitHub Actions builds all APKs and runs unit tests on every push.

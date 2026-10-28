@@ -19,11 +19,18 @@ import io.github.lumpilabs.beamline.protocol.ProtocolException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.max
+import kotlin.math.min
 
 /**
  * Decodes the sender's Opus audio and plays it. Playback starts once [START_BUFFER_MS] is queued,
- * which absorbs Wi-Fi bursts; when more than [MAX_BUFFERED_MS] piles up (the two devices' clocks
- * drifting apart over a long session), a chunk is dropped to keep the delay bounded.
+ * which absorbs Wi-Fi bursts; when more than [MAX_BUFFERED_MS] piles up, a chunk is dropped to
+ * keep the delay bounded.
+ *
+ * A burst can also leave the queue high for good: after a reconnect, or after the TV's audio
+ * output paused for a refresh-rate switch, it can sit near [MAX_BUFFERED_MS], where the slightest
+ * bunching of packets drops chunks. When even its lowest level stays [TRIM_MARGIN_MS] above the
+ * start cushion for [TRIM_WINDOW_NS], the excess is skipped once, in one piece. The same keeps the
+ * two devices' clocks drifting apart over a long session from adding delay.
  *
  * Before Android 12, a started or flushed track only plays once its whole buffer is full. While
  * filling, the track's usable size is therefore shrunk to the start cushion, and grown back once
@@ -55,9 +62,15 @@ class AudioPlayer(private val config: AudioConfig) {
   private val timestamp = AudioTimestamp()
   private val segments = ArrayDeque<Segment>()
 
+  /** Lowest queue level since [floorSinceNs], and how much incoming audio is still to be skipped. */
+  private var floorFrames = Long.MAX_VALUE
+  private var floorSinceNs = 0L
+  private var trimFrames = 0L
+
   // Diagnostics, logged every few seconds.
   private var peakDbfs = -96.0
   private var droppedChunks = 0
+  private var skippedMs = 0L
   private var restarts = 0
   private var lastReportNs = 0L
 
@@ -164,11 +177,15 @@ class AudioPlayer(private val config: AudioConfig) {
   private fun play(pcm: ByteArray, ptsUs: Long) {
     peakDbfs = max(peakDbfs, AudioLevel.peakDbfs(pcm))
     if (playing) restartIfStalled()
-    if (bufferedFrames() + pendingFrames > framesFor(MAX_BUFFERED_MS)) {
+    val frames = pcm.size / bytesPerFrame
+    val queued = bufferedFrames() + pendingFrames
+    if (trimFrames > 0) {
+      trimFrames -= frames
+    } else if (queued > framesFor(MAX_BUFFERED_MS)) {
       droppedChunks++
     } else {
       pending.addLast(Pcm(pcm, ptsUs))
-      pendingFrames += pcm.size / bytesPerFrame
+      pendingFrames += frames
     }
     writePending()
     if (!playing && framesWritten >= startFrames) {
@@ -177,8 +194,24 @@ class AudioPlayer(private val config: AudioConfig) {
       lastHead = headPosition()
       lastHeadChangeNs = System.nanoTime()
     }
+    if (expanded) trimIfBacklogged(queued)
     updateClock()
     report()
+  }
+
+  /** Skips the excess when the queue's lowest level stayed well above the start cushion. */
+  private fun trimIfBacklogged(queued: Long) {
+    floorFrames = min(floorFrames, queued)
+    val now = System.nanoTime()
+    if (now - floorSinceNs < TRIM_WINDOW_NS) return
+    if (floorFrames > framesFor(START_BUFFER_MS + TRIM_MARGIN_MS)) {
+      trimFrames = floorFrames - framesFor(START_BUFFER_MS)
+      val ms = trimFrames * 1000 / config.sampleRate
+      skippedMs += ms
+      Log.i(TAG, "Skipping $ms ms of sound to bring the delay back down")
+    }
+    floorFrames = Long.MAX_VALUE
+    floorSinceNs = now
   }
 
   /** Moves decoded audio into the track as far as it has room. */
@@ -212,10 +245,13 @@ class AudioPlayer(private val config: AudioConfig) {
     if (head != lastHead) {
       lastHead = head
       lastHeadChangeNs = now
-      // The mixer took the track: give bursts the whole buffer again.
+      // The mixer took the track: give bursts the whole buffer again, and start watching the
+      // queue level from here, not from the filling before.
       if (!expanded) {
         track.setBufferSizeInFrames(track.bufferCapacityInFrames)
         expanded = true
+        floorFrames = Long.MAX_VALUE
+        floorSinceNs = now
       }
       return
     }
@@ -226,6 +262,7 @@ class AudioPlayer(private val config: AudioConfig) {
       track.flush()
     }
     playing = false
+    trimFrames = 0
     framesWritten = 0
     headBase = headPosition()
     segments.clear()
@@ -248,10 +285,11 @@ class AudioPlayer(private val config: AudioConfig) {
     lastReportNs = now
     Log.i(
       TAG,
-      "Audio peak %.0f dBFS, buffered %d ms, dropped %d chunks, %d restarts".format(
+      "Audio peak %.0f dBFS, buffered %d ms, dropped %d chunks, skipped %d ms, %d restarts".format(
         peakDbfs,
         bufferedFrames() * 1000 / config.sampleRate,
         droppedChunks,
+        skippedMs,
         restarts,
       ),
     )
@@ -278,6 +316,10 @@ class AudioPlayer(private val config: AudioConfig) {
     /** Smooth playback matters more than low delay: about a third of a second of cushion. */
     const val START_BUFFER_MS = 300
     const val MAX_BUFFERED_MS = 600
+
+    /** Normal Wi-Fi jitter keeps dipping the queue well below this much above the cushion. */
+    const val TRIM_MARGIN_MS = 100
+    const val TRIM_WINDOW_NS = 2_000_000_000L
     const val TRACK_BUFFER_MS = 1000
     const val MAX_SEGMENTS = 200
     const val INPUT_TIMEOUT_US = 10_000L
