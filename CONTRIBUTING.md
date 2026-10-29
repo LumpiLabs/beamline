@@ -38,6 +38,10 @@ the README. `--hiccup=<second>` simulates Wi-Fi that stalls for a moment.
 
 ## Changing code
 
+Changes reach `main` only through pull requests, and each one is merged by the
+maintainer after their approval and a green build. For contributors from outside the
+project, the build starts once the maintainer has looked at the pull request.
+
 - One topic per pull request. Small ones get reviewed fastest.
 - `./gradlew build` must pass: tests and lint included.
 - Write like the code around you: Kotlin with 2-space indents, comments that say why
