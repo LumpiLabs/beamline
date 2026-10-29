@@ -1,2 +1,3 @@
-# Every change needs the maintainer's approval before it reaches main (see the "protect main" ruleset).
+# The maintainer is asked to review every pull request. Only the maintainer can merge,
+# and only with a green build (see the "protect main" ruleset).
 * @jacshakeab
