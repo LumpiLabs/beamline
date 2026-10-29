@@ -1,6 +1,7 @@
 version: 2
+# Updates come grouped, one pull request per ecosystem, so each batch needs one build
+# and one approval.
 updates:
-  # Gradle plugins and libraries, grouped so the build is checked once per batch.
   - package-ecosystem: gradle
     directory: /
     schedule:
@@ -12,3 +13,6 @@ updates:
     directory: /
     schedule:
       interval: monthly
+    groups:
+      github-actions:
+        patterns: ["*"]
