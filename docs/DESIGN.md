@@ -81,14 +81,16 @@ control messages.
 
 CBOR two-element arrays of the form `["<name>", {...}]`, the body a map with snake_case
 field names; unknown fields are ignored and unknown message names are skipped, so newer
-peers can add both. Messages: `hello` (versions, device name, capabilities, and a
-`sender_id` that stays the same for one install of the sender app),
+peers can add both. Messages: `hello` (versions, device name, capabilities, a
+`sender_id` that stays the same for one install of the sender app, and `pair` when the
+sender doesn't know the receiver yet), `pairing` and `pairing_confirm` (see below),
 `welcome` (chosen version, stream limits, and the audio and video codecs the receiver
 plays; a receiver that lists no video codecs takes H.264), `stream` (codec, width, height, fps,
 rotation, sent before each new video config), `request_keyframe`, `bitrate_hint`,
 `ping`/`pong` (round-trip time and clock offset), `stats`, and `bye` (with reason; the
-receiver's reasons "busy", "open_app", "app_closed" and "no_screen" get their own
-message on the phone, others are shown as they are).
+receiver's reasons "busy", "open_app", "app_closed", "no_screen" and
+"pairing_declined" get their own message on the phone, others are shown as they are;
+the sender says "pairing_rejected" when its user saw a different code).
 Both sides ping once a second. The sender's `time_us` in pings and pongs is on the
 same clock as its `pts_us`, so the receiver can work out from the round trips how far
 its picture is behind the sender's screen.
@@ -96,7 +98,12 @@ its picture is behind the sender's screen.
 ### Security and pairing
 
 Each install generates an EC P-256 key pair and a self-signed certificate on first
-start. Sessions use TLS 1.2 or newer with mutual certificate authentication.
+start and keeps them in `no_backup` storage, so a backup can't carry them to another
+device. The certificate is written by a small DER encoder in `protocol`, as the JDK
+has no public API for it. Sessions use TLS 1.2 or newer with mutual certificate
+authentication. The handshake accepts any certificate, since there is no authority
+that could vouch for a TV or a phone; trust comes afterwards from the peer's
+certificate fingerprint (SHA-256 of the DER) and, the first time, from pairing.
 
 On the first connection between a phone and a TV, both screens show a 6-digit code:
 
@@ -106,14 +113,31 @@ code = (first 4 bytes of h as unsigned big-endian integer) mod 1,000,000, zero-p
 ```
 
 where `r` and `s` are the DER certificates of the receiver and the sender. Test
-vector: `r = 01 02 03`, `s = 04 05 06` gives `939459`. The user confirms on the phone
-that the codes match, and both sides remember the other's certificate fingerprint.
-Later connections from a known phone start without a prompt. This is the same
+vector: `r = 01 02 03`, `s = 04 05 06` gives `939459`. This is the same
 numeric-comparison idea Bluetooth pairing uses: a device in the middle would
-produce different codes.
+produce different codes on the two screens.
 
-The TV can forget paired phones in its settings, and can be set to accept only
-paired phones or to ask every time.
+The flow, right after the TLS handshake:
+
+1. The sender sends `hello`, with `pair` if it doesn't know the receiver's fingerprint.
+2. If the receiver doesn't know the sender, or `pair` is set, it answers `pairing`
+   instead of `welcome` and shows the code. `receiver_confirms` says whether the TV's
+   user must allow the sender too, which is the case when the TV doesn't know it.
+3. On the phone, a sender that doesn't know the TV asks its user whether the TV shows
+   the same code, in the app and in a notification (mirroring often starts from the
+   Quick Settings tile). On a yes, or at once when it knows the TV, it sends
+   `pairing_confirm`; on a no it sends `bye` "pairing_rejected".
+4. On the TV, OK allows the phone and Back declines it (`bye` "pairing_declined").
+5. With both answers in, the receiver remembers the sender's fingerprint and sends
+   `welcome`, and the sender remembers the receiver's. Later connections start without
+   a prompt.
+
+Both answers matter. The phone's keeps it from sending its screen to a device in
+between; the TV's keeps strangers on the network from pairing with it on their own,
+which a confirmation on the phone alone couldn't stop. Each side waits two minutes
+for its user. Pairing needs the TV app on screen, so with the app closed only paired
+phones get in. Settings to forget paired phones are planned (M5); until then,
+clearing the app's data forgets them all.
 
 ## Sender (phone)
 
@@ -205,13 +229,11 @@ paired phones or to ask every time.
   own picture processing comes on top. The same figures go to the log once a minute.
 - **Ready in the background:** on Fire OS 6 and 7 (Android 7.1 to 9) a foreground
   service keeps the server and the network announcement up while the TV app is
-  closed; it starts when the app is first opened and again after the TV boots. A phone
-  that connected once while the app was open (its `sender_id` is remembered) can then
-  start mirroring with the app closed: the TV wakes, also from its screensaver, and
-  brings the app to the front, and the session waits up to 4 seconds for the screen.
-  Other phones get `bye` "open_app" and are told to open Beamline on the TV first; the
-  id isn't secret, so this only keeps strangers' phones from popping up until pairing
-  (M3) does it properly. Android 10 and newer don't let an app open itself from the
+  closed; it starts when the app is first opened and again after the TV boots. A paired
+  phone can then start mirroring with the app closed: the TV wakes, also from its
+  screensaver, and brings the app to the front, and the session waits up to 4 seconds
+  for the screen. Phones that still have to pair get `bye` "open_app" and are told to
+  open Beamline on the TV first. Android 10 and newer don't let an app open itself from the
   background without the "display over other apps" permission, so there the server
   runs only while the app is open.
 - **Leaving the app:** Home or Back while mirroring ends the session with `bye`

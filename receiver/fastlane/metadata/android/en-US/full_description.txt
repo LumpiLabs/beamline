@@ -5,6 +5,7 @@ Beamline TV turns a Fire TV or Android TV into a screen-mirroring receiver for A
 * Smooth, evenly paced playback with sound in sync. For 25 fps video the TV switches to 50 Hz, so every frame shows equally long.
 * OK on the remote switches between filling the screen and showing the whole picture.
 * Menu on the remote shows how mirroring is going: frame rate, delay behind the phone, Wi-Fi jitter, dropped frames and sound gaps.
+* Encrypted, and only for phones you allowed: the first time, the TV and the phone show the same code, and you press OK.
 * In English and German.
 * No ads, accounts, subscriptions or tracking. Free software under the GPLv3.
 

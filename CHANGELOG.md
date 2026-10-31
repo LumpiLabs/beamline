@@ -28,6 +28,9 @@ Notable changes to Beamline. There is no release yet; see the
 
 ### Both
 
+- Encrypted connections (TLS 1.2 or newer). The first time a phone and a TV meet, both
+  show a 6-digit code: confirm it on the phone and press OK on the TV. With the app
+  closed, a Fire TV only opens for paired phones.
 - English and German.
 - `tools/test-sender` streams a test pattern with sound from a PC, for testing the TV
   app without a phone.
