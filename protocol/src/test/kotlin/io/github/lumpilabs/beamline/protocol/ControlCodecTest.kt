@@ -16,6 +16,9 @@ class ControlCodecTest {
     val messages = listOf(
       Hello(listOf(1), "Pixel 8", listOf(Codecs.H264, Codecs.HEVC), listOf(Codecs.OPUS)),
       Hello(listOf(1), "Pixel 8", listOf(Codecs.H264), listOf(Codecs.OPUS), "6f1c2a"),
+      Hello(listOf(1), "Pixel 8", listOf(Codecs.H264), listOf(Codecs.OPUS), "6f1c2a", pair = true),
+      Pairing(receiverConfirms = true),
+      Pairing(receiverConfirms = false),
       Welcome(1, "Living room TV", 1920, 1080, 60),
       Welcome(1, "Living room TV", 1920, 1080, 60, listOf(Codecs.OPUS)),
       Welcome(1, "Living room TV", 2560, 1080, 60, listOf(Codecs.OPUS), listOf(Codecs.H264, Codecs.HEVC)),
@@ -36,6 +39,14 @@ class ControlCodecTest {
   @Test
   fun roundTripsObjectMessages() {
     assertSame(RequestKeyframe, ControlCodec.decode(ControlCodec.encode(RequestKeyframe)))
+    assertSame(PairingConfirm, ControlCodec.decode(ControlCodec.encode(PairingConfirm)))
+  }
+
+  @Test
+  fun helloFromAnOlderSenderDoesNotAskToPair() {
+    val bytes = ControlCodec.encode(Hello(listOf(1), "Pixel 8", listOf(Codecs.H264), emptyList()))
+    assertFalse("pair" in bytes.decodeToString())
+    assertFalse((ControlCodec.decode(bytes) as Hello).pair)
   }
 
   @Test
