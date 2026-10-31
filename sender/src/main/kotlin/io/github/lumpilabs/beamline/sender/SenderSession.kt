@@ -31,6 +31,10 @@ import io.github.lumpilabs.beamline.protocol.FrameReader
 import io.github.lumpilabs.beamline.protocol.FrameType
 import io.github.lumpilabs.beamline.protocol.FrameWriter
 import io.github.lumpilabs.beamline.protocol.Hello
+import io.github.lumpilabs.beamline.protocol.Identity
+import io.github.lumpilabs.beamline.protocol.Pairing
+import io.github.lumpilabs.beamline.protocol.PairingCode
+import io.github.lumpilabs.beamline.protocol.PairingConfirm
 import io.github.lumpilabs.beamline.protocol.Ping
 import io.github.lumpilabs.beamline.protocol.Pong
 import io.github.lumpilabs.beamline.protocol.Protocol
@@ -38,13 +42,18 @@ import io.github.lumpilabs.beamline.protocol.ProtocolException
 import io.github.lumpilabs.beamline.protocol.RequestKeyframe
 import io.github.lumpilabs.beamline.protocol.StreamConfig
 import io.github.lumpilabs.beamline.protocol.StreamSizing
+import io.github.lumpilabs.beamline.protocol.Tls
 import io.github.lumpilabs.beamline.protocol.VideoSize
 import io.github.lumpilabs.beamline.protocol.Welcome
 import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
+import javax.net.ssl.SSLException
 import kotlin.concurrent.thread
 import kotlin.math.min
 
@@ -61,6 +70,9 @@ import kotlin.math.min
  * Connections go over Wi-Fi when the phone has it. Otherwise Android may send them over mobile
  * data, where the TV can't be reached, and while Wi-Fi is down each attempt would hang until it
  * times out instead of going through the moment Wi-Fi is back.
+ *
+ * Every connection is TLS. The first time with a TV, the user compares the pairing code on both
+ * screens (see [pair]); after that the TV is recognised by its certificate.
  */
 class SenderSession(
   context: Context,
@@ -75,6 +87,11 @@ class SenderSession(
   private val handler = Handler(handlerThread.looper)
   private val stopped = AtomicBoolean(false)
   private val senderId = SenderPrefs.senderId(appContext)
+  private val identity = SenderPrefs.identity(appContext)
+  private val tls = Tls.context(identity)
+
+  /** The user's answer to "does the TV show the same code?", while that question is open. */
+  @Volatile private var pendingPairing: CompletableFuture<Boolean>? = null
 
   /** The connection frames go to; null while (re)connecting, so frames from then are dropped. */
   private val link = AtomicReference<Link?>(null)
@@ -123,9 +140,15 @@ class SenderSession(
     }
   }
 
+  /** The user's answer while [MirrorStatus.Pairing] is showing: true when both codes match. */
+  fun answerPairing(matches: Boolean) {
+    pendingPairing?.complete(matches)
+  }
+
   /** Ends the session. A non-null [error] is shown to the user. Safe to call from any thread. */
   fun stop(error: String?) {
     if (stopped.getAndSet(true)) return
+    pendingPairing?.complete(false)
     MirrorState.set(appContext, if (error != null) MirrorStatus.Failed(error) else MirrorStatus.Idle)
     runCatching { connectivity.unregisterNetworkCallback(networkCallback) }
     val last = link.getAndSet(null)
@@ -161,7 +184,9 @@ class SenderSession(
       val current = try {
         connect()
       } catch (e: IOException) {
-        if (!connectedOnce) {
+        // A "no" to pairing ends the session, also while reconnecting: asking again won't help.
+        val pairingFailed = e is PairingCancelled || (e is TvDeclined && e.reason == ByeReasons.PAIRING_DECLINED)
+        if (!connectedOnce || pairingFailed) {
           Log.i(TAG, "Connecting failed: ${e.message}")
           stop(connectFailure(e))
         } else if (SystemClock.elapsedRealtime() - lostAtMs > RECONNECT_WINDOW_MS) {
@@ -203,18 +228,33 @@ class SenderSession(
       socket.tcpNoDelay = true
       socket.connect(InetSocketAddress(target.host, target.port), CONNECT_TIMEOUT_MS)
       socket.soTimeout = CONNECT_TIMEOUT_MS
-      val writer = FrameWriter(socket.getOutputStream())
-      val reader = FrameReader(socket.getInputStream())
-      val hello = Hello(listOf(Protocol.VERSION), deviceName(), listOf(Codecs.H264), listOf(Codecs.OPUS), senderId)
+      val secure = Tls.client(tls, socket, target.host, target.port)
+      val receiverCertificate = Tls.peerCertificate(secure)
+      val fingerprint = Identity.fingerprintOf(receiverCertificate)
+      val known = SenderPrefs.isPairedReceiver(appContext, fingerprint)
+      val writer = FrameWriter(secure.outputStream)
+      val reader = FrameReader(secure.inputStream)
+      val hello = Hello(listOf(Protocol.VERSION), deviceName(), listOf(Codecs.H264), listOf(Codecs.OPUS), senderId, pair = !known)
       writer.write(ControlCodec.toFrame(hello))
-      val welcome = when (val reply = readControlMessage(reader)) {
+      var reply = readControlMessage(reader)
+      if (reply is Pairing) {
+        pair(reply, receiverCertificate, known, writer)
+        // The TV's user may still have to find the remote and press OK.
+        secure.soTimeout = PAIRING_TIMEOUT_MS.toInt()
+        reply = readControlMessage(reader)
+      } else if (!known && reply is Welcome) {
+        // Without comparing codes, this could be anyone pretending to be the TV.
+        throw ProtocolException("The TV skipped pairing")
+      }
+      val welcome = when (reply) {
         is Welcome -> reply
         is Bye -> throw TvDeclined(reply.reason)
         else -> throw ProtocolException("The TV didn't answer the handshake")
       }
-      socket.soTimeout = LINK_TIMEOUT_MS
+      if (!known) SenderPrefs.rememberPairedReceiver(appContext, fingerprint)
+      secure.soTimeout = LINK_TIMEOUT_MS
       needsLocalNetwork = network != null
-      return Link(socket, writer, reader, welcome)
+      return Link(secure, writer, reader, welcome)
     } catch (e: IOException) {
       runCatching { socket.close() }
       throw e
@@ -223,18 +263,51 @@ class SenderSession(
     }
   }
 
+  /**
+   * Pairing: the TV shows the same code. When this phone doesn't know the TV yet, its user must
+   * confirm that both codes match; the TV's user may then still have to allow the phone with OK.
+   */
+  private fun pair(request: Pairing, receiverCertificate: ByteArray, known: Boolean, writer: FrameWriter) {
+    val code = PairingCode.derive(receiverCertificate, identity.certificateDer)
+    if (!known) {
+      val answer = CompletableFuture<Boolean>()
+      pendingPairing = answer
+      MirrorState.set(appContext, MirrorStatus.Pairing(target.name, code))
+      val matches = try {
+        answer.get(PAIRING_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+      } catch (_: TimeoutException) {
+        false
+      } finally {
+        pendingPairing = null
+      }
+      if (!matches || stopped.get()) {
+        runCatching { writer.write(ControlCodec.toFrame(Bye(ByeReasons.PAIRING_REJECTED))) }
+        throw PairingCancelled()
+      }
+    }
+    writer.write(ControlCodec.toFrame(PairingConfirm))
+    val next = if (request.receiverConfirms) MirrorStatus.AllowOnTv(target.name, code) else MirrorStatus.Connecting(target.name)
+    MirrorState.set(appContext, next)
+  }
+
   /** Why the first connection failed, in words for the user rather than the system's. */
   private fun connectFailure(e: IOException): String =
     when {
+      e is PairingCancelled -> appContext.getString(R.string.error_pairing_cancelled, target.name)
+      e is TvDeclined && e.reason == ByeReasons.PAIRING_DECLINED -> appContext.getString(R.string.error_pairing_declined, target.name)
       e is TvDeclined && e.reason == ByeReasons.BUSY -> appContext.getString(R.string.error_tv_busy, target.name)
       e is TvDeclined && e.reason == ByeReasons.OPEN_APP -> appContext.getString(R.string.error_tv_open_app, target.name)
       e is TvDeclined -> appContext.getString(R.string.error_tv_declined, target.name, e.reason)
-      e is ProtocolException -> appContext.getString(R.string.error_not_beamline, target.name)
+      // A TLS failure means it isn't a Beamline TV, or one with an older app.
+      e is ProtocolException || e is SSLException -> appContext.getString(R.string.error_not_beamline, target.name)
       else -> appContext.getString(R.string.error_unreachable, target.name)
     }
 
   /** The TV answered the handshake with `bye`. */
   private class TvDeclined(val reason: String) : IOException("The TV declined: $reason")
+
+  /** The user saw a different code, cancelled, or didn't answer in time. */
+  private class PairingCancelled : IOException("Pairing cancelled on the phone")
 
   /** What to show when the TV ends mirroring with [bye], or null for an ordinary end. */
   private fun byeMessage(bye: Bye): String? =
@@ -521,6 +594,9 @@ class SenderSession(
 
     /** How long the phone keeps trying to reach the TV again after losing the connection. */
     const val RECONNECT_WINDOW_MS = 60_000L
+
+    /** Time for each of the two users to compare the code and answer, as on the TV. */
+    const val PAIRING_TIMEOUT_MS = 120_000L
     const val RETRY_INTERVAL_MS = 1_000L
     const val MAX_FPS = 60
 

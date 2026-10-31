@@ -12,6 +12,10 @@
   <string name="end_failed">die Wiedergabe ist fehlgeschlagen.</string>
   <string name="ready_channel">Bereit für Handys</string>
   <string name="ready_title">Bereit: Handys, die schon hierher gespiegelt haben, können die Spiegelung starten</string>
+  <string name="pairing_title">%1$s mit diesem Fernseher koppeln?</string>
+  <string name="pairing_check">Prüfe, ob das Handy denselben Code zeigt.</string>
+  <string name="pairing_allow">OK: erlauben · Zurück: ablehnen</string>
+  <string name="pairing_confirm_on_phone">Bestätige den Code auf dem Handy.</string>
   <string name="hint_fill">Bildschirm gefüllt · OK zeigt das ganze Bild</string>
   <string name="hint_fit">Ganzes Bild · OK füllt den Bildschirm</string>
   <string name="protocol_version">Protokollversion %1$d</string>

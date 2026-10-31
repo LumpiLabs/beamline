@@ -3,7 +3,9 @@ package io.github.lumpilabs.beamline.sender
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.core.content.edit
+import io.github.lumpilabs.beamline.protocol.Identity
 import io.github.lumpilabs.beamline.protocol.Protocol
+import java.io.File
 import java.util.UUID
 
 /** Small persistent settings of the phone app. Excluded from backups, see data_extraction_rules. */
@@ -16,6 +18,26 @@ object SenderPrefs {
   private const val SENDER_ID = "sender_id"
   private const val KEEP_AWAKE = "keep_awake"
   private const val HEVC = "hevc"
+  private const val PAIRED_RECEIVERS = "paired_receivers"
+
+  @Volatile private var identity: Identity? = null
+
+  /** This install's TLS identity, made on first use. Kept out of backups, like everything here. */
+  fun identity(context: Context): Identity =
+    identity ?: synchronized(this) {
+      identity ?: Identity.loadOrCreate(File(context.applicationContext.noBackupFilesDir, "identity"), "Beamline phone")
+        .also { identity = it }
+    }
+
+  /** Certificate fingerprints of the TVs this phone paired with. */
+  fun isPairedReceiver(context: Context, fingerprint: String): Boolean =
+    fingerprint in prefs(context).getStringSet(PAIRED_RECEIVERS, emptySet()).orEmpty()
+
+  @Synchronized
+  fun rememberPairedReceiver(context: Context, fingerprint: String) {
+    val paired = prefs(context).getStringSet(PAIRED_RECEIVERS, emptySet()).orEmpty()
+    if (fingerprint !in paired) prefs(context).edit { putStringSet(PAIRED_RECEIVERS, paired + fingerprint) }
+  }
 
   /** The TV mirrored to most recently; the Quick Settings tile mirrors to it. */
   fun lastReceiver(context: Context): ReceiverAddress? {

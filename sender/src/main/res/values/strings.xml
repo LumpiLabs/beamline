@@ -7,6 +7,13 @@
   <string name="status_mirroring">Mirroring to %1$s (%2$d × %3$d, %4$s)</string>
   <string name="status_reconnecting">Connection lost, reconnecting to %1$s…</string>
   <string name="status_failed">Stopped: %1$s</string>
+  <string name="status_pairing">Does %1$s show the code %2$s?</string>
+  <string name="status_allow_on_tv">Press OK on the remote of %1$s to allow this phone.</string>
+  <string name="pairing_question">First time with %1$s: does the TV show this code too?</string>
+  <string name="pairing_matches">Same code</string>
+  <string name="pairing_differs">Different code</string>
+  <string name="pairing_channel">Pairing</string>
+  <string name="pairing_notification_title">Pair with %1$s</string>
   <string name="stop">Stop</string>
   <string name="tvs_on_network">TVs on your network</string>
   <string name="searching">Searching… Open Beamline on the TV.</string>
@@ -19,6 +26,8 @@
   <string name="error_unreachable">Couldn\'t reach %1$s. Is Beamline open on the TV, and are both on the same Wi-Fi?</string>
   <string name="error_tv_busy">%1$s is showing another device.</string>
   <string name="error_tv_declined">%1$s turned the connection down: %2$s</string>
+  <string name="error_pairing_cancelled">Pairing with %1$s was cancelled.</string>
+  <string name="error_pairing_declined">Pairing was declined on %1$s.</string>
   <string name="error_tv_open_app">Open Beamline on %1$s once to connect this phone. After that, connecting opens it by itself.</string>
   <string name="error_tv_app_closed">Beamline was closed on %1$s.</string>
   <string name="error_tv_no_screen">%1$s couldn\'t show the picture. Open Beamline on the TV and try again.</string>
@@ -35,6 +44,8 @@
   <string name="tile_connecting">Connecting…</string>
   <string name="tile_reconnecting">Reconnecting…</string>
   <string name="tile_pick_tv">Tap to pick a TV</string>
+  <string name="tile_check_code">Check the code</string>
+  <string name="tile_allow_on_tv">Press OK on the TV</string>
   <string name="notification_channel">Mirroring</string>
   <string name="notification_title">Mirroring to %1$s</string>
 </resources>
