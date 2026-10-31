@@ -84,6 +84,12 @@ class MainActivity : ComponentActivity() {
    * or hides the statistics (Up does too, for remotes without a Menu button).
    */
   override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+    // While a new phone waits to pair, OK allows it and Back declines it (instead of leaving the app).
+    val pairing = controller.state.value as? ReceiverState.Pairing
+    if (pairing?.mustAllow == true && (keyCode in OK_KEYS || keyCode == KeyEvent.KEYCODE_BACK)) {
+      controller.answerPairing(keyCode != KeyEvent.KEYCODE_BACK)
+      return true
+    }
     val streaming = (controller.state.value as? ReceiverState.Connected)?.video != null
     if (streaming && keyCode in OK_KEYS) {
       controller.toggleFill()
@@ -172,7 +178,7 @@ fun ReceiverScreen(
   val video = (state as? ReceiverState.Connected)?.video
   val streaming = video != null
   val view = LocalView.current
-  SideEffect { view.keepScreenOn = state is ReceiverState.Connected }
+  SideEffect { view.keepScreenOn = state is ReceiverState.Connected || state is ReceiverState.Pairing }
 
   BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
     val aspect = if (video != null) video.width.toFloat() / video.height else 16f / 9f
@@ -185,7 +191,9 @@ fun ReceiverScreen(
       else -> maxWidth to maxWidth / aspect
     }
     VideoSurface(Modifier.requiredSize(width, height), onSurface)
-    if (!streaming) {
+    if (state is ReceiverState.Pairing) {
+      PairingScreen(state)
+    } else if (!streaming) {
       StatusScreen(state, tvName)
     } else if (aspect >= MIN_FILL_ASPECT) {
       ZoomHint(fill, Modifier.align(Alignment.BottomCenter))
@@ -308,6 +316,40 @@ private fun VideoSurface(modifier: Modifier, onSurface: (Surface?) -> Unit) {
   )
 }
 
+/** The code to compare with the phone's, large enough to read from the sofa. */
+@Composable
+private fun PairingScreen(state: ReceiverState.Pairing) {
+  Column(
+    modifier = Modifier
+      .fillMaxSize()
+      .background(MaterialTheme.colorScheme.background)
+      .padding(48.dp),
+    verticalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterVertically),
+    horizontalAlignment = Alignment.CenterHorizontally,
+  ) {
+    Text(
+      stringResource(R.string.pairing_title, state.senderName),
+      style = MaterialTheme.typography.headlineMedium,
+      color = MaterialTheme.colorScheme.onBackground,
+    )
+    Text(
+      state.code.chunked(3).joinToString(" "),
+      style = MaterialTheme.typography.displayLarge.copy(fontFeatureSettings = "tnum"),
+      color = MaterialTheme.colorScheme.onBackground,
+    )
+    Text(
+      stringResource(R.string.pairing_check),
+      style = MaterialTheme.typography.bodyLarge,
+      color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Text(
+      stringResource(if (state.mustAllow) R.string.pairing_allow else R.string.pairing_confirm_on_phone),
+      style = MaterialTheme.typography.titleMedium,
+      color = MaterialTheme.colorScheme.onBackground,
+    )
+  }
+}
+
 @Composable
 private fun StatusScreen(state: ReceiverState, tvName: String) {
   Column(
@@ -327,6 +369,7 @@ private fun StatusScreen(state: ReceiverState, tvName: String) {
       is ReceiverState.Idle -> stringResource(R.string.idle_waiting)
       is ReceiverState.Connected -> stringResource(R.string.connected_waiting_for_video, state.senderName)
       is ReceiverState.Failed -> state.message
+      is ReceiverState.Pairing -> stringResource(R.string.pairing_title, state.senderName)
     }
     Text(headline, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onBackground)
     Text(

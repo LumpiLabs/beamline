@@ -10,5 +10,6 @@ Beamline collects nothing about you.
   stored anywhere.
 - The phone app captures only what other apps play, never the microphone. Android
   calls the permission for this "record audio".
-- Each app keeps a few settings on the device (for example the last TV used, or the
-  phones a TV has seen before). They stay on the device and are left out of backups.
+- Each app keeps a few settings on the device (for example the last TV used), its own
+  key for encrypting the connection, and the keys' fingerprints of the devices it was
+  paired with. They stay on the device and are left out of backups.

@@ -59,6 +59,8 @@ class MirrorTileService : TileService() {
       is MirrorStatus.Mirroring -> status.receiver
       is MirrorStatus.Connecting -> getString(R.string.tile_connecting)
       is MirrorStatus.Reconnecting -> getString(R.string.tile_reconnecting)
+      is MirrorStatus.Pairing -> getString(R.string.tile_check_code)
+      is MirrorStatus.AllowOnTv -> getString(R.string.tile_allow_on_tv)
       else -> SenderPrefs.lastReceiver(this)?.name ?: getString(R.string.tile_pick_tv)
     }
     tile.updateTile()

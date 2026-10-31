@@ -13,6 +13,9 @@ import android.media.projection.MediaProjectionManager
 import android.os.IBinder
 import android.os.PowerManager
 import androidx.core.content.IntentCompat
+import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 /**
  * Foreground service that holds the screen capture for one session. Android requires the
@@ -20,16 +23,30 @@ import androidx.core.content.IntentCompat
  *
  * While mirroring it can also keep the screen on, dimmed ([SenderPrefs.keepAwake]): once the phone
  * locks, Android stops sending the picture.
+ *
+ * When a first connection asks whether the TV shows the same pairing code, a notification pops up
+ * with the code and both answers, because mirroring often starts from the Quick Settings tile with
+ * the app closed.
  */
 class MirrorService : Service() {
   @Volatile private var session: SenderSession? = null
   private var screenLock: PowerManager.WakeLock? = null
+  private val scope = MainScope()
 
   override fun onBind(intent: Intent?): IBinder? = null
+
+  override fun onCreate() {
+    super.onCreate()
+    scope.launch { MirrorState.status.collect(::showPairingNotification) }
+  }
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     if (intent?.action == ACTION_STOP) {
       session?.stop(null) ?: stopSelf()
+      return START_NOT_STICKY
+    }
+    if (intent?.action == ACTION_PAIRING_ANSWER) {
+      session?.answerPairing(intent.getBooleanExtra(EXTRA_MATCHES, false)) ?: stopSelf()
       return START_NOT_STICKY
     }
     if (intent?.action == ACTION_KEEP_AWAKE) {
@@ -74,7 +91,39 @@ class MirrorService : Service() {
     session = null
     screenLock?.release()
     screenLock = null
+    scope.cancel()
+    getSystemService(NotificationManager::class.java).cancel(PAIRING_NOTIFICATION_ID)
     super.onDestroy()
+  }
+
+  /** Shows the pairing question while it is open, and removes it once answered. */
+  private fun showPairingNotification(status: MirrorStatus) {
+    val manager = getSystemService(NotificationManager::class.java)
+    if (status !is MirrorStatus.Pairing) {
+      manager.cancel(PAIRING_NOTIFICATION_ID)
+      return
+    }
+    manager.createNotificationChannel(
+      NotificationChannel(PAIRING_CHANNEL_ID, getString(R.string.pairing_channel), NotificationManager.IMPORTANCE_HIGH),
+    )
+    fun answer(matches: Boolean) = PendingIntent.getService(
+      this,
+      if (matches) 1 else 2,
+      Intent(this, MirrorService::class.java).setAction(ACTION_PAIRING_ANSWER).putExtra(EXTRA_MATCHES, matches),
+      PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+    )
+    val notification = Notification.Builder(this, PAIRING_CHANNEL_ID)
+      .setSmallIcon(R.drawable.ic_notification)
+      .setContentTitle(getString(R.string.pairing_notification_title, status.receiver))
+      .setContentText(getString(R.string.status_pairing, status.receiver, spacedCode(status.code)))
+      .setContentIntent(
+        PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE),
+      )
+      .setOngoing(true)
+      .addAction(Notification.Action.Builder(null, getString(R.string.pairing_matches), answer(true)).build())
+      .addAction(Notification.Action.Builder(null, getString(R.string.pairing_differs), answer(false)).build())
+      .build()
+    manager.notify(PAIRING_NOTIFICATION_ID, notification)
   }
 
   /**
@@ -128,6 +177,10 @@ class MirrorService : Service() {
   companion object {
     private const val ACTION_STOP = "io.github.lumpilabs.beamline.sender.STOP"
     private const val ACTION_KEEP_AWAKE = "io.github.lumpilabs.beamline.sender.KEEP_AWAKE"
+    private const val ACTION_PAIRING_ANSWER = "io.github.lumpilabs.beamline.sender.PAIRING_ANSWER"
+    private const val EXTRA_MATCHES = "matches"
+    private const val PAIRING_CHANNEL_ID = "pairing"
+    private const val PAIRING_NOTIFICATION_ID = 2
     private const val EXTRA_RESULT_CODE = "result_code"
     private const val EXTRA_RESULT_DATA = "result_data"
     private const val EXTRA_NAME = "name"
@@ -153,6 +206,13 @@ class MirrorService : Service() {
     /** Applies a changed [SenderPrefs.keepAwake] to the running session. */
     fun updateKeepAwake(context: Context) {
       context.startService(Intent(context, MirrorService::class.java).setAction(ACTION_KEEP_AWAKE))
+    }
+
+    /** The user's answer to the pairing question in the app: true when the TV shows the same code. */
+    fun answerPairing(context: Context, matches: Boolean) {
+      context.startService(
+        Intent(context, MirrorService::class.java).setAction(ACTION_PAIRING_ANSWER).putExtra(EXTRA_MATCHES, matches),
+      )
     }
   }
 }

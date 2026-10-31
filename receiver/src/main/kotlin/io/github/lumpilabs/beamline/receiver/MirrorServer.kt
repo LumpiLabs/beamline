@@ -17,12 +17,17 @@ import io.github.lumpilabs.beamline.protocol.FrameReader
 import io.github.lumpilabs.beamline.protocol.FrameType
 import io.github.lumpilabs.beamline.protocol.FrameWriter
 import io.github.lumpilabs.beamline.protocol.Hello
+import io.github.lumpilabs.beamline.protocol.Identity
+import io.github.lumpilabs.beamline.protocol.Pairing
+import io.github.lumpilabs.beamline.protocol.PairingCode
+import io.github.lumpilabs.beamline.protocol.PairingConfirm
 import io.github.lumpilabs.beamline.protocol.Ping
 import io.github.lumpilabs.beamline.protocol.Pong
 import io.github.lumpilabs.beamline.protocol.Protocol
 import io.github.lumpilabs.beamline.protocol.ProtocolException
 import io.github.lumpilabs.beamline.protocol.RequestKeyframe
 import io.github.lumpilabs.beamline.protocol.StreamConfig
+import io.github.lumpilabs.beamline.protocol.Tls
 import io.github.lumpilabs.beamline.protocol.VideoSize
 import io.github.lumpilabs.beamline.protocol.Welcome
 import java.io.IOException
@@ -31,23 +36,43 @@ import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.net.SocketTimeoutException
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
+import javax.net.ssl.SSLSocket
 import kotlin.concurrent.thread
 
 /**
- * Accepts one sender at a time over TCP and plays its video on the surface from [videoSurface].
- * A second sender gets a `bye` with reason "busy", unless it is the same sender reconnecting
- * after losing its connection: then the new connection replaces the old one.
+ * Accepts one sender at a time over TLS, as [identity], and plays its video on the surface from
+ * [videoSurface]. A sender the TV doesn't know yet pairs first (see [Session.pair]). A second
+ * sender gets a `bye` with reason "busy", unless it is the same sender reconnecting after losing
+ * its connection: then the new connection replaces the old one.
  */
 class MirrorServer(
   private val tvName: String,
+  private val identity: Identity,
   private val videoSurface: () -> Surface?,
   private val events: Events,
 ) {
   interface Events {
-    /** Null to let [senderId] mirror, or the reason for the `bye` that turns it away. */
-    fun refusal(senderId: String?): String?
+    /** Whether the sender with this certificate fingerprint was paired with the TV before. */
+    fun isPaired(fingerprint: String): Boolean
+
+    /** Null to let a sender in, or the reason for the `bye` that turns it away. [pairing]: it has to pair first. */
+    fun refusal(pairing: Boolean): String?
+
+    /**
+     * Shows [code] for pairing with [senderName]. The future completes with whether the TV's user
+     * allowed the sender; without [mustAllow], the code is only shown and the future completes
+     * with true at once.
+     */
+    fun askPairing(senderName: String, code: String, mustAllow: Boolean): CompletableFuture<Boolean>
+
+    /** Pairing is over, either way: the code can go. */
+    fun onPairingFinished()
+
+    fun rememberPaired(fingerprint: String)
 
     fun onConnected(senderName: String)
 
@@ -77,6 +102,8 @@ class MirrorServer(
 
   @Volatile private var serverSocket: ServerSocket? = null
 
+  private val tls = Tls.context(identity)
+
   /** What the TV can decode, offered to every sender in `welcome`; looked up once. */
   private val videoCodecs by lazy {
     VideoDecoder.supportedCodecs(MAX_SIZE, MAX_FPS).also { Log.i(TAG, "Decodes $it") }
@@ -89,7 +116,7 @@ class MirrorServer(
 
   /** Starts listening on [Protocol.DEFAULT_PORT], or any free port if that one is taken. */
   fun start(): Int {
-    val server = ServerSocket().apply { reuseAddress = true }
+    val server = Tls.serverSocket(tls).apply { reuseAddress = true }
     try {
       server.bind(InetSocketAddress(Protocol.DEFAULT_PORT))
     } catch (_: BindException) {
@@ -143,6 +170,13 @@ class MirrorServer(
     return true
   }
 
+  /** Another sender is on screen, so [senderId] would be turned away; checked before pairing too. */
+  private fun isBusyFor(senderId: String?): Boolean =
+    synchronized(lock) {
+      val current = active
+      current != null && (senderId == null || current.senderId != senderId)
+    }
+
   /** Returns true when [session] was still the active one, so its end means the screen goes idle. */
   private fun release(session: Session): Boolean =
     synchronized(lock) {
@@ -169,6 +203,9 @@ class MirrorServer(
     @Volatile var senderId: String? = null
       private set
 
+    /** The DER certificate the sender presented in the TLS handshake. */
+    private lateinit var senderCertificate: ByteArray
+
     /** Set before streaming starts; a reconnecting sender's session takes over the old one's. */
     @Volatile var stats = PlaybackStats()
 
@@ -182,11 +219,15 @@ class MirrorServer(
           send(Bye("unsupported protocol version"))
           return
         }
-        events.refusal(hello.senderId)?.let {
-          Log.i(TAG, "Turned ${hello.name} away: $it")
-          send(Bye(it))
+        val paired = events.isPaired(Identity.fingerprintOf(senderCertificate))
+        val pairing = !paired || hello.pair
+        val refusal = events.refusal(pairing) ?: ByeReasons.BUSY.takeIf { isBusyFor(hello.senderId) }
+        if (refusal != null) {
+          Log.i(TAG, "Turned ${hello.name} away: $refusal")
+          send(Bye(refusal))
           return
         }
+        if (pairing && !pair(hello.name, mustAllow = !paired)) return
         claimed = claim(this, hello.senderId)
         if (!claimed) {
           send(Bye(ByeReasons.BUSY))
@@ -238,12 +279,55 @@ class MirrorServer(
     private fun handshake(): Hello {
       socket.tcpNoDelay = true
       socket.soTimeout = HANDSHAKE_TIMEOUT_MS
+      (socket as SSLSocket).startHandshake()
+      senderCertificate = Tls.peerCertificate(socket)
       writer = FrameWriter(socket.getOutputStream())
       reader = FrameReader(socket.getInputStream())
       val hello = reader.read()?.let(::controlOrNull) as? Hello
         ?: throw ProtocolException("The sender didn't start with hello")
       senderId = hello.senderId
       return hello
+    }
+
+    /**
+     * Both screens show the pairing code. The sender's user confirms that the codes match
+     * (`pairing_confirm`); if the TV doesn't know the sender yet ([mustAllow]), the TV's user must
+     * also allow it with OK. Only then is the sender remembered. Returns whether pairing worked.
+     */
+    private fun pair(senderName: String, mustAllow: Boolean): Boolean {
+      val fingerprint = Identity.fingerprintOf(senderCertificate)
+      val code = PairingCode.derive(identity.certificateDer, senderCertificate)
+      val allowed = events.askPairing(senderName, code, mustAllow)
+      // Declining on the TV ends it at once, even while the phone's user is still looking.
+      allowed.thenAccept { if (!it) end(ByeReasons.PAIRING_DECLINED) }
+      try {
+        send(Pairing(receiverConfirms = mustAllow))
+        socket.soTimeout = PAIRING_TIMEOUT_MS
+        while (true) {
+          when (val message = reader.read()?.let(::controlOrNull) ?: throw IOException("The sender left during pairing")) {
+            is PairingConfirm -> break
+            is Bye -> {
+              Log.i(TAG, "$senderName ended pairing: ${message.reason}")
+              return false
+            }
+            else -> Unit
+          }
+        }
+        val ok = try {
+          allowed.get(PAIRING_TIMEOUT_MS.toLong(), TimeUnit.MILLISECONDS)
+        } catch (_: TimeoutException) {
+          false
+        }
+        if (!ok) {
+          end(ByeReasons.PAIRING_DECLINED)
+          return false
+        }
+        if (mustAllow) events.rememberPaired(fingerprint)
+        Log.i(TAG, "Paired with $senderName")
+        return true
+      } finally {
+        events.onPairingFinished()
+      }
     }
 
     private fun stream() {
@@ -408,6 +492,9 @@ class MirrorServer(
     /** How long a reconnecting sender waits for its old session to let go of the screen. */
     private const val REPLACE_TIMEOUT_MS = 3_000L
     private const val SURFACE_WAIT_MS = 4_000
+
+    /** Time for each of the two users to compare the code and answer. */
+    private const val PAIRING_TIMEOUT_MS = 120_000
 
     /** A larger delay means the sender's pongs use another clock than its frames (older apps). */
     private const val MAX_PLAUSIBLE_DELAY_NS = 5_000_000_000L

@@ -5,6 +5,7 @@ Beamline TV macht einen Fire TV oder Android TV zum Empfänger für die Bildschi
 * Flüssige, gleichmäßige Wiedergabe mit passendem Ton. Bei Videos mit 25 Bildern pro Sekunde schaltet der Fernseher auf 50 Hz, damit jedes Bild gleich lang zu sehen ist.
 * OK auf der Fernbedienung wechselt zwischen bildschirmfüllend und ganzem Bild.
 * Menü auf der Fernbedienung zeigt, wie die Spiegelung läuft: Bildrate, Verzögerung gegenüber dem Handy, WLAN-Schwankungen, verworfene Bilder und Tonlücken.
+* Verschlüsselt und nur für Handys, die du erlaubt hast: Beim ersten Mal zeigen Fernseher und Handy denselben Code, und du drückst OK.
 * Auf Deutsch und Englisch.
 * Keine Werbung, keine Konten, keine Abos, kein Tracking. Freie Software unter der GPLv3.
 

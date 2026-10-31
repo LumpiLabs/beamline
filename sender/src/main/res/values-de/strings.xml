@@ -6,6 +6,13 @@
   <string name="status_mirroring">Spiegelt auf %1$s (%2$d × %3$d, %4$s)</string>
   <string name="status_reconnecting">Verbindung verloren, verbinde wieder mit %1$s…</string>
   <string name="status_failed">Beendet: %1$s</string>
+  <string name="status_pairing">Zeigt %1$s den Code %2$s?</string>
+  <string name="status_allow_on_tv">Drück OK auf der Fernbedienung von %1$s, um dieses Handy zu erlauben.</string>
+  <string name="pairing_question">Zum ersten Mal mit %1$s: Zeigt der Fernseher auch diesen Code?</string>
+  <string name="pairing_matches">Gleicher Code</string>
+  <string name="pairing_differs">Anderer Code</string>
+  <string name="pairing_channel">Koppeln</string>
+  <string name="pairing_notification_title">Mit %1$s koppeln</string>
   <string name="stop">Beenden</string>
   <string name="tvs_on_network">Fernseher in deinem Netzwerk</string>
   <string name="searching">Suche… Öffne Beamline auf dem Fernseher.</string>
@@ -18,6 +25,8 @@
   <string name="error_unreachable">%1$s ist nicht erreichbar. Ist Beamline auf dem Fernseher offen, und sind beide im selben WLAN?</string>
   <string name="error_tv_busy">%1$s zeigt gerade ein anderes Gerät.</string>
   <string name="error_tv_declined">%1$s hat die Verbindung abgelehnt: %2$s</string>
+  <string name="error_pairing_cancelled">Das Koppeln mit %1$s wurde abgebrochen.</string>
+  <string name="error_pairing_declined">Das Koppeln wurde auf %1$s abgelehnt.</string>
   <string name="error_tv_open_app">Öffne Beamline einmal auf %1$s, um dieses Handy zu verbinden. Danach öffnet es sich beim Verbinden von selbst.</string>
   <string name="error_tv_app_closed">Beamline wurde auf %1$s geschlossen.</string>
   <string name="error_tv_no_screen">%1$s konnte das Bild nicht zeigen. Öffne Beamline auf dem Fernseher und versuch es noch einmal.</string>
@@ -34,6 +43,8 @@
   <string name="tile_connecting">Verbinde…</string>
   <string name="tile_reconnecting">Verbinde wieder…</string>
   <string name="tile_pick_tv">Tippen, um einen Fernseher zu wählen</string>
+  <string name="tile_check_code">Code prüfen</string>
+  <string name="tile_allow_on_tv">OK am Fernseher drücken</string>
   <string name="notification_channel">Spiegelung</string>
   <string name="notification_title">Spiegelt auf %1$s</string>
 </resources>
