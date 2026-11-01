@@ -73,11 +73,13 @@ class PlaybackStatsTest {
     stats.framesDropped.addAndGet(12)
     stats.soundSkippedMs.addAndGet(205)
     stats.soundQueuedMs = 312
+    stats.decodeMs = 84
     now += 61_000_000_000
     val snapshot = stats.snapshot(null, null, null, 342_000_000, 6_000, 4_000_000)
     assertEquals(61_000, snapshot.elapsedMs)
     assertEquals(3, snapshot.framesLate)
     assertEquals(12, snapshot.framesDropped)
+    assertEquals(84, snapshot.decodeMs)
     assertEquals(205, snapshot.soundSkippedMs)
     assertEquals(312, snapshot.soundQueuedMs)
     assertEquals(342, snapshot.delayMs)

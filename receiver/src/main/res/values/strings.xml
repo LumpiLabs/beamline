@@ -33,7 +33,7 @@
   <string name="stats_wifi">Wi-Fi</string>
   <string name="stats_wifi_value">round trip %1$s, jitter %2$s, worst %3$s</string>
   <string name="stats_frames">Frames</string>
-  <string name="stats_frames_value">late %1$d, dropped %2$d</string>
+  <string name="stats_frames_value">late %1$d, dropped %2$d, decoding %3$s</string>
   <string name="stats_sound">Sound</string>
   <string name="stats_sound_value">buffer %1$s, sync %2$s</string>
   <string name="stats_sound_off">none</string>

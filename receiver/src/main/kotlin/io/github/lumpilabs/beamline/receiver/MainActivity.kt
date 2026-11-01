@@ -243,7 +243,10 @@ private fun StatsOverlay(stats: StatsSnapshot, senderName: String, modifier: Mod
       R.string.stats_wifi,
       stringResource(R.string.stats_wifi_value, ms(stats.roundTripMs), ms(stats.jitterMs), ms(stats.worstJitterMs)),
     )
-    StatsRow(R.string.stats_frames, stringResource(R.string.stats_frames_value, stats.framesLate, stats.framesDropped))
+    StatsRow(
+      R.string.stats_frames,
+      stringResource(R.string.stats_frames_value, stats.framesLate, stats.framesDropped, ms(stats.decodeMs)),
+    )
     val sync = stats.skewMs?.let { stringResource(R.string.stats_signed_ms, it) } ?: unknown
     StatsRow(
       R.string.stats_sound,
@@ -425,6 +428,7 @@ private fun StatsPreview() {
         contentRate = FrameRateDetector.StandardRate.FPS_25,
         framesLate = 3,
         framesDropped = 12,
+        decodeMs = 84,
         delayMs = 342,
         roundTripMs = 6,
         jitterMs = 18,

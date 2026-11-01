@@ -21,8 +21,14 @@ class PlaybackStats(private val nanoTime: () -> Long = System::nanoTime) {
   /** Shown a whole 60 Hz refresh or more after their time, which a viewer sees as a stutter. */
   val framesLate = AtomicLong()
 
-  /** Thrown away undecoded: an overflowing buffer, or frames before the next keyframe. */
+  /**
+   * Thrown away: undecoded from an overflowing buffer or before the next keyframe, or decoded so
+   * late that showing them would keep the picture behind.
+   */
   val framesDropped = AtomicLong()
+
+  /** How long the decoder takes per frame, smoothed; null before the first frame. */
+  @Volatile var decodeMs: Long? = null
 
   /** Decoded sound waiting to be heard, or null without sound. */
   @Volatile var soundQueuedMs: Long? = null
@@ -84,6 +90,7 @@ class PlaybackStats(private val nanoTime: () -> Long = System::nanoTime) {
       contentRate = contentRate,
       framesLate = framesLate.get(),
       framesDropped = framesDropped.get(),
+      decodeMs = decodeMs,
       delayMs = delayNs?.let { it / 1_000_000 },
       roundTripMs = roundTripUs?.let { it / 1000 },
       jitterMs = jitterNs?.let { it / 1_000_000 },
@@ -119,6 +126,7 @@ data class StatsSnapshot(
   val contentRate: StandardRate?,
   val framesLate: Long,
   val framesDropped: Long,
+  val decodeMs: Long?,
   /** From capture on the phone to the TV handing the frame to its screen. */
   val delayMs: Long?,
   val roundTripMs: Long?,
@@ -133,7 +141,7 @@ data class StatsSnapshot(
 ) {
   /** One line for the log, so a long test can be checked afterwards. */
   fun summary(): String =
-    "After %d s, %d reconnects: %s, %.1f fps shown of %.1f received, %d kbit/s, content %s, %d late, %d dropped, delay %s ms, round trip %s ms, jitter %s ms (worst %d), sound %s ms queued, skew %s ms, %d chunks dropped, %d ms skipped, %d restarts".format(
+    "After %d s, %d reconnects: %s, %.1f fps shown of %.1f received, %d kbit/s, content %s, %d late, %d dropped, decode %s ms, delay %s ms, round trip %s ms, jitter %s ms (worst %d), sound %s ms queued, skew %s ms, %d chunks dropped, %d ms skipped, %d restarts".format(
       elapsedMs / 1000,
       reconnects,
       video?.let { "${it.width}x${it.height} $codec" } ?: "no video",
@@ -143,6 +151,7 @@ data class StatsSnapshot(
       contentRate?.name ?: "varying",
       framesLate,
       framesDropped,
+      decodeMs ?: "?",
       delayMs ?: "?",
       roundTripMs ?: "?",
       jitterMs ?: "?",

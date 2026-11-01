@@ -188,11 +188,16 @@ clearing the app's data forgets them all.
 ## Receiver (TV)
 
 - **Video:** `MediaCodec` decoding straight to a `SurfaceView`. Compressed frames wait
-  in a buffer and go to the decoder 60 ms before they are due, so the decoder never
-  runs out of output slots; each decoded frame is released for its exact display time
+  in a buffer and go to the decoder only as long before they are due as decoding takes
+  (measured all the time, plus a margin: 60 to 100 ms), so the decoder never runs out of
+  output slots; each decoded frame is released for its exact display time
   (`releaseOutputBuffer` with a timestamp). Display times follow the sound's clock, and
   are smoothed into an even cadence, because a phone composing 25 fps video on a
   120 Hz screen delivers frames alternately 33 and 42 ms apart.
+- **Catching up:** a frame that comes out of the decoder more than 40 ms late is
+  skipped, never two in a row. Content at the screen's own rate (60 fps on 60 Hz) can't
+  otherwise catch up after a stall, such as the TV app opening while frames already
+  arrive, and the picture would stay behind the sound for good.
 - **Refresh rate:** the receiver detects steady 24, 25 or 50 fps content and asks the
   TV for a matching display mode (50 Hz for 25 and 50 fps) at the same resolution, so
   every frame is shown equally long. It switches after 4 seconds of steady content and

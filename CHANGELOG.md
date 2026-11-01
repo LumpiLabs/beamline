@@ -19,10 +19,11 @@ Notable changes to Beamline. There is no release yet; see the
 ### TV app
 
 - Smooth, evenly paced playback with sound in sync; switches the TV to 50 Hz for 25 fps
-  video.
+  video. Frames go to the decoder as early as it needs, measured all the time, and after
+  a stall the picture catches up with the sound within seconds.
 - OK on the remote switches between filling the screen and showing the whole picture.
-- Menu shows statistics: frame rate, delay behind the phone, Wi-Fi jitter, dropped
-  frames and sound gaps.
+- Menu shows statistics: frame rate, delay behind the phone, Wi-Fi jitter, late and
+  dropped frames, decode time and sound gaps.
 - On Fire TV, a phone that has mirrored once can open the app by connecting, also after
   the TV restarts.
 

@@ -20,8 +20,9 @@ import java.util.concurrent.TimeUnit
  * Hardware video decoder that renders straight to [surface] at the times [clock] schedules.
  *
  * Frames wait here still encoded, in a jitter buffer of a few hundred milliseconds, and go into
- * the decoder [DECODE_LEAD_NS] before they're due. Waiting before decoding matters: a decoder has
- * only a handful of output buffers, so holding decoded frames that long would stall it.
+ * the decoder about as long before they're due as decoding takes, see [DecodeLead]. Waiting before
+ * decoding matters: a decoder has only a handful of output buffers, so holding decoded frames that
+ * long would stall it.
  *
  * If the buffer overflows (the network delivered far more than can be shown), queued frames are
  * dropped and [Listener.onNeedKeyframe] asks the sender for a fresh keyframe.
@@ -48,9 +49,13 @@ class VideoDecoder(
   private val codec: MediaCodec
   private val freeInputs = ArrayDeque<Int>()
   private val pending = ArrayDeque<Pending>()
-  private val renderTimes = LinkedHashMap<Long, Long>()
+
+  /** Frames in the decoder, by timestamp: when they went in and when they're due. */
+  private val decoding = LinkedHashMap<Long, Decoding>()
+  private val lead = DecodeLead()
   private val feedLater = Runnable { feed() }
   private var waitingForKeyframe = true
+  private var skippedLast = false
 
   /** Released, or broken by an error: either way the codec takes no more calls. */
   private var stopped = false
@@ -131,7 +136,7 @@ class VideoDecoder(
     try {
       while (freeInputs.isNotEmpty() && pending.isNotEmpty()) {
         val next = pending.first()
-        val dueAt = next.renderAt?.minus(DECODE_LEAD_NS)
+        val dueAt = next.renderAt?.minus(lead.ns)
         if (dueAt != null && dueAt > now) {
           handler.postDelayed(feedLater, (dueAt - now) / 1_000_000 + 1)
           return
@@ -152,7 +157,7 @@ class VideoDecoder(
         var flags = 0
         if (frame.hasFlag(FrameFlags.CODEC_CONFIG)) flags = flags or MediaCodec.BUFFER_FLAG_CODEC_CONFIG
         if (frame.hasFlag(FrameFlags.KEYFRAME)) flags = flags or MediaCodec.BUFFER_FLAG_KEY_FRAME
-        next.renderAt?.let { rememberRenderTime(frame.ptsUs, it) }
+        next.renderAt?.let { remember(frame.ptsUs, Decoding(queuedAt = now, renderAt = it)) }
         codec.queueInputBuffer(index, 0, frame.body.size, frame.ptsUs, flags)
       }
     } catch (e: IllegalStateException) {
@@ -172,9 +177,9 @@ class VideoDecoder(
     listener.onDecoderError(error)
   }
 
-  private fun rememberRenderTime(ptsUs: Long, renderAt: Long) {
-    renderTimes[ptsUs] = renderAt
-    if (renderTimes.size > MAX_RENDER_TIMES) renderTimes.remove(renderTimes.keys.first())
+  private fun remember(ptsUs: Long, frame: Decoding) {
+    decoding[ptsUs] = frame
+    if (decoding.size > MAX_DECODING) decoding.remove(decoding.keys.first())
   }
 
   private inner class Callback : MediaCodec.Callback() {
@@ -187,15 +192,28 @@ class VideoDecoder(
     override fun onOutputBufferAvailable(codec: MediaCodec, index: Int, info: MediaCodec.BufferInfo) {
       if (stopped) return
       val now = System.nanoTime()
-      val target = renderTimes.remove(info.presentationTimeUs)
+      val decoded = decoding.remove(info.presentationTimeUs)
+      val target = decoded?.renderAt
+      if (decoded != null) {
+        lead.onDecoded(now - decoded.queuedAt)
+        stats.decodeMs = lead.decodeNs?.let { it / 1_000_000 }
+      }
       if (target != null && now - target >= LATE_NS) stats.framesLate.incrementAndGet()
-      stats.framesShown.incrementAndGet()
+      // Far behind, as after a stall: when the content runs at the screen's own rate, showing every
+      // frame would leave the picture behind the sound for good. Skipping catches up; never two in
+      // a row, so a decoder that is always this slow still shows every other frame.
+      val skip = target != null && now - target > SKIP_LATE_NS && !skippedLast
+      skippedLast = skip
+      if (skip) stats.framesDropped.incrementAndGet() else stats.framesShown.incrementAndGet()
       val showAt = try {
-        if (target == null || target <= now + ON_TIME_NS) {
-          codec.releaseOutputBuffer(index, true)
-          now
-        } else {
-          minOf(target, now + MAX_HOLD_NS).also { codec.releaseOutputBuffer(index, it) }
+        when {
+          skip -> {
+            codec.releaseOutputBuffer(index, false)
+            return
+          }
+          // On the TV's clock: releaseOutputBuffer(index, true) would pass on the phone's timestamp.
+          target == null || target <= now + ON_TIME_NS -> now.also { codec.releaseOutputBuffer(index, it) }
+          else -> minOf(target, now + MAX_HOLD_NS).also { codec.releaseOutputBuffer(index, it) }
         }
       } catch (e: IllegalStateException) {
         fail(e)
@@ -211,6 +229,8 @@ class VideoDecoder(
   }
 
   private class Pending(val frame: Frame, val renderAt: Long?)
+
+  private class Decoding(val queuedAt: Long, val renderAt: Long)
 
   companion object {
     /**
@@ -243,18 +263,21 @@ class VideoDecoder(
     /** About two seconds at 60 fps; a normal buffer holds a few hundred milliseconds. */
     private const val MAX_PENDING = 120
 
-    /** How long before its time a frame goes into the decoder; decoding takes 10 to 30 ms. */
-    private const val DECODE_LEAD_NS = 60_000_000L
-
     /** Frames due within this are shown at once. */
     private const val ON_TIME_NS = 4_000_000L
 
-    /** Never hold a decoded frame longer than this: the decoder has only a few output buffers. */
+    /**
+     * Never hold a decoded frame longer than this: the decoder has only a few output buffers.
+     * [DecodeLead.MAX_NS] stays within it.
+     */
     private const val MAX_HOLD_NS = 100_000_000L
 
     /** A frame decoded this long after its time misses at least one refresh of a 60 Hz screen. */
     private const val LATE_NS = 16_700_000L
 
-    private const val MAX_RENDER_TIMES = 256
+    /** A frame decoded this long after its time is skipped: a whole frame at 25 fps. */
+    private const val SKIP_LATE_NS = 40_000_000L
+
+    private const val MAX_DECODING = 256
   }
 }
