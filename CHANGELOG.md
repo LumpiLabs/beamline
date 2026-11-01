@@ -9,7 +9,7 @@ Notable changes to Beamline. There is no release yet; see the
 
 - Mirrors the screen with sound to the Beamline TV app; start and stop in the app or
   from Quick Settings.
-- Picks up again by itself after a Wi-Fi drop.
+- Picks up again by itself after a Wi-Fi drop, also with a VPN such as Tailscale on.
 - Keeps the screen on, dimmed, while mirroring, because Android stops sending the
   picture once the phone locks (can be switched off).
 - Optional HEVC for a sharper picture when the phone and the TV both handle it in

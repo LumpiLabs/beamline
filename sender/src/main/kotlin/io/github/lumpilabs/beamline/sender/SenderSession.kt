@@ -15,6 +15,8 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.SystemClock
 import android.provider.Settings
+import android.system.ErrnoException
+import android.system.OsConstants
 import android.util.Log
 import android.view.Display
 import android.view.Surface
@@ -48,6 +50,7 @@ import io.github.lumpilabs.beamline.protocol.Welcome
 import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.net.SocketException
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
@@ -106,6 +109,13 @@ class SenderSession(
    * back. A TV on the phone's own hotspot is reached without it. Touched only on the link thread.
    */
   private var needsLocalNetwork = false
+
+  /**
+   * Whether connections may be bound to [localNetwork]. A VPN that can't be bypassed, such as
+   * Tailscale, forbids it; its routes reach the TV anyway, as they did for the first connection.
+   * Touched only on the link thread.
+   */
+  private var mayBindToNetwork = true
 
   // Touched only on the handler thread.
   private lateinit var welcome: Welcome
@@ -224,7 +234,7 @@ class SenderSession(
     val socket = Socket()
     connectingSocket = socket
     try {
-      network?.bindSocket(socket)
+      if (network != null && mayBindToNetwork) bindToNetwork(socket, network)
       socket.tcpNoDelay = true
       socket.connect(InetSocketAddress(target.host, target.port), CONNECT_TIMEOUT_MS)
       socket.soTimeout = CONNECT_TIMEOUT_MS
@@ -260,6 +270,17 @@ class SenderSession(
       throw e
     } finally {
       connectingSocket = null
+    }
+  }
+
+  /** Keeps the connection on Wi-Fi even when mobile data is the default route, as on Wi-Fi without internet. */
+  private fun bindToNetwork(socket: Socket, network: Network) {
+    try {
+      network.bindSocket(socket)
+    } catch (e: SocketException) {
+      if ((e.cause as? ErrnoException)?.errno != OsConstants.EPERM) throw e
+      Log.i(TAG, "A VPN forbids binding to Wi-Fi, connecting through its routes")
+      mayBindToNetwork = false
     }
   }
 
