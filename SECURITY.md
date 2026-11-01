@@ -7,20 +7,28 @@ Please don't open a public issue. Report it privately through GitHub instead:
 Once a fix is out, the report is published with credit to you, unless you'd rather stay
 anonymous.
 
-## What to expect today
+## How Beamline protects a session
 
-Beamline is in development, and some protection described in the
-[design](docs/DESIGN.md#security-and-pairing) isn't built yet:
+The details are in the [design](docs/DESIGN.md#security-and-pairing).
 
-- The connection between the phone and the TV isn't encrypted or paired yet (planned
-  for milestone M3). Anyone on the same network who can watch its traffic can see what
-  is mirrored.
-- While the TV app is open, any device on the network can start mirroring to it.
-- With the TV app closed, a Fire TV only opens for phones that have connected before.
-  It recognises them by an id the phone sends, which isn't secret, so this keeps
-  strangers' phones from popping up but doesn't stop a determined attacker on the
-  network.
+- Everything between the phone and the TV, picture and sound included, is encrypted
+  with TLS 1.2 or newer. Each phone and each TV has its own key, made on the device and
+  never backed up or sent anywhere.
+- The first time a phone and a TV meet, both show the same 6-digit code. The phone's
+  user confirms that the codes match, and the TV's user allows the phone with OK on
+  the remote. A device sitting in between would cause different codes.
+- After that, the two recognise each other by their keys. With the TV app closed, a
+  Fire TV only lets paired phones in.
 
-Use Beamline on networks you trust, such as your home Wi-Fi, until pairing is in
-place. Reports about these known gaps are still welcome if you find a way they're
-worse than described.
+## Known limits
+
+Beamline is still in development.
+
+- The TV can't yet forget a single paired phone; clearing the TV app's data forgets
+  all of them (and the phone app's data, all TVs).
+- Whoever can press OK on the TV remote while a new phone pairs decides whether it may
+  mirror. That is on purpose, as for any TV.
+- The apps haven't had an independent security review.
+
+Reports about these limits are welcome too if you find a way they're worse than
+described.

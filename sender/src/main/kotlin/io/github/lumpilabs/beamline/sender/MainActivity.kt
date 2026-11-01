@@ -89,6 +89,7 @@ class MainActivity : ComponentActivity() {
           hevc = hevc,
           onConnect = { startActivity(CaptureActivity.intent(this, it)) },
           onStop = { MirrorService.stop(this) },
+          onPairingAnswer = { MirrorService.answerPairing(this, it) },
           onAddTile = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !tileAdded) ::requestAddTile else null,
           onKeepAwakeChange = ::changeKeepAwake,
           onHevcChange = ::changeHevc,
@@ -183,6 +184,7 @@ fun SenderScreen(
   hevc: Boolean,
   onConnect: (ReceiverAddress) -> Unit,
   onStop: () -> Unit,
+  onPairingAnswer: (Boolean) -> Unit,
   onAddTile: (() -> Unit)?,
   onKeepAwakeChange: (Boolean) -> Unit,
   onHevcChange: (Boolean) -> Unit,
@@ -199,7 +201,7 @@ fun SenderScreen(
           modifier = Modifier.padding(top = 24.dp),
         )
       }
-      item { StatusCard(status, onStop) }
+      item { StatusCard(status, onStop, onPairingAnswer) }
       if (onAddTile != null) {
         item { AddTileCard(onAddTile) }
       }
@@ -235,7 +237,11 @@ fun SenderScreen(
 }
 
 @Composable
-private fun StatusCard(status: MirrorStatus, onStop: () -> Unit) {
+private fun StatusCard(status: MirrorStatus, onStop: () -> Unit, onPairingAnswer: (Boolean) -> Unit) {
+  if (status is MirrorStatus.Pairing) {
+    PairingCard(status, onPairingAnswer)
+    return
+  }
   Card(Modifier.fillMaxWidth()) {
     Row(
       modifier = Modifier.padding(16.dp).fillMaxWidth(),
@@ -253,11 +259,32 @@ private fun StatusCard(status: MirrorStatus, onStop: () -> Unit) {
           if (status.codec == Codecs.HEVC) "HEVC" else "H.264",
         )
         is MirrorStatus.Reconnecting -> stringResource(R.string.status_reconnecting, status.receiver)
+        is MirrorStatus.Pairing -> stringResource(R.string.status_pairing, status.receiver, spacedCode(status.code))
+        is MirrorStatus.AllowOnTv -> stringResource(R.string.status_allow_on_tv, status.receiver)
         is MirrorStatus.Failed -> stringResource(R.string.status_failed, status.message)
       }
       Text(text, modifier = Modifier.weight(1f))
       if (status.isActive) {
         OutlinedButton(onClick = onStop) { Text(stringResource(R.string.stop)) }
+      }
+    }
+  }
+}
+
+/** First connection to a TV: the code to compare with the one on the TV, and the two answers. */
+@Composable
+private fun PairingCard(status: MirrorStatus.Pairing, onAnswer: (Boolean) -> Unit) {
+  Card(Modifier.fillMaxWidth()) {
+    Column(Modifier.padding(16.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+      Text(stringResource(R.string.pairing_question, status.receiver), style = MaterialTheme.typography.bodyLarge)
+      Text(
+        spacedCode(status.code),
+        style = MaterialTheme.typography.displaySmall.copy(fontFeatureSettings = "tnum"),
+        modifier = Modifier.align(Alignment.CenterHorizontally),
+      )
+      Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.align(Alignment.End)) {
+        OutlinedButton(onClick = { onAnswer(false) }) { Text(stringResource(R.string.pairing_differs)) }
+        Button(onClick = { onAnswer(true) }) { Text(stringResource(R.string.pairing_matches)) }
       }
     }
   }
@@ -330,6 +357,7 @@ private fun SenderScreenPreview() {
       hevc = false,
       onConnect = {},
       onStop = {},
+      onPairingAnswer = {},
       onAddTile = {},
       onKeepAwakeChange = {},
       onHevcChange = {},

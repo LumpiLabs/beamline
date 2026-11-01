@@ -10,11 +10,16 @@ import io.github.lumpilabs.beamline.protocol.FrameReader
 import io.github.lumpilabs.beamline.protocol.FrameType
 import io.github.lumpilabs.beamline.protocol.FrameWriter
 import io.github.lumpilabs.beamline.protocol.Hello
+import io.github.lumpilabs.beamline.protocol.Identity
+import io.github.lumpilabs.beamline.protocol.Pairing
+import io.github.lumpilabs.beamline.protocol.PairingCode
+import io.github.lumpilabs.beamline.protocol.PairingConfirm
 import io.github.lumpilabs.beamline.protocol.Ping
 import io.github.lumpilabs.beamline.protocol.Pong
 import io.github.lumpilabs.beamline.protocol.Protocol
 import io.github.lumpilabs.beamline.protocol.RequestKeyframe
 import io.github.lumpilabs.beamline.protocol.StreamConfig
+import io.github.lumpilabs.beamline.protocol.Tls
 import io.github.lumpilabs.beamline.protocol.VideoSize
 import io.github.lumpilabs.beamline.protocol.Welcome
 import java.io.File
@@ -57,10 +62,14 @@ fun main(args: Array<String>) {
   val clip = TestPattern.encode(size, fps, frameCount = fps * 2)
   println("${clip.frames.size} frames, ${clip.frames.sumOf { it.data.size } / 1024} KiB")
 
-  Socket().use { socket ->
-    socket.tcpNoDelay = true
-    socket.connect(InetSocketAddress(host, port), 5_000)
-    socket.soTimeout = 5_000
+  // Kept between runs, so the TV has to allow the test sender only once.
+  val identity = Identity.loadOrCreate(File(System.getProperty("user.home"), ".beamline/test-sender"), "Beamline test sender")
+  val plain = Socket().apply {
+    tcpNoDelay = true
+    connect(InetSocketAddress(host, port), 5_000)
+    soTimeout = 5_000
+  }
+  Tls.client(Tls.context(identity), plain, host, port).use { socket ->
     val output = HiccupStream(socket.getOutputStream())
     val writer = FrameWriter(output)
     val reader = FrameReader(socket.getInputStream())
@@ -69,7 +78,17 @@ fun main(args: Array<String>) {
     // A fixed sender id: a second run replaces the first one on the TV, like a reconnecting phone.
     val hello = Hello(listOf(Protocol.VERSION), "Beamline test sender", listOf(Codecs.H264), audioCodecs, SENDER_ID)
     writer.write(ControlCodec.toFrame(hello))
-    val welcome = when (val reply = reader.read()?.let { ControlCodec.decode(it.body) }) {
+    var reply = reader.read()?.let { ControlCodec.decode(it.body) }
+    if (reply is Pairing) {
+      // A test tool has no screen of its own to compare, so it takes the TV's code as matching.
+      val code = PairingCode.derive(Tls.peerCertificate(socket), identity.certificateDer)
+      println("Pairing code ${code.chunked(3).joinToString(" ")}" + if (reply.receiverConfirms) ": press OK on the TV remote" else "")
+      writer.write(ControlCodec.toFrame(PairingConfirm))
+      socket.soTimeout = 120_000
+      reply = reader.read()?.let { ControlCodec.decode(it.body) }
+      socket.soTimeout = 5_000
+    }
+    val welcome = when (reply) {
       is Welcome -> reply
       is Bye -> {
         println("The TV declined: ${reply.reason}")

@@ -14,9 +14,11 @@ No ads, accounts, subscriptions or tracking. In English and German.
 ## How it works
 
 - **TV:** install the Beamline TV app on your Fire TV or Android TV and open it. On a
-  Fire TV, a phone that has mirrored to it once can later start mirroring with the TV
-  app closed: the TV wakes up and opens it by itself. Newer Android TVs need the app
-  open.
+  Fire TV, a paired phone can later start mirroring with the TV app closed: the TV
+  wakes up and opens it by itself. Newer Android TVs need the app open.
+- **The first time** a phone and a TV meet, both show the same 6-digit code: confirm it
+  on the phone and press OK on the TV remote. After that they know each other, and
+  the connection is always encrypted.
 - **iPad, iPhone, Mac:** open Screen Mirroring and pick the TV. No app needed.
 - **Android phones:** install the Beamline sender app and tap the TV in the app or
   in Quick Settings. While mirroring, the phone's screen stays on, dimmed, because
@@ -72,6 +74,10 @@ ffmpeg -f lavfi -i sine=frequency=440:duration=5 -af volume=0.1 -ac 2 -c:a libop
 ```
 
 Add `--hiccup=10` to hold everything back for one second at second 10 and then send it at once, like Wi-Fi that stalls for a moment.
+
+The first run pairs with the TV: the test sender prints the code and takes it as
+matching, and the TV asks you to press OK on the remote. It keeps its key in
+`~/.beamline/test-sender`, so later runs start straight away.
 
 ## Contributing
 

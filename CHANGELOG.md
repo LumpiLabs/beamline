@@ -9,7 +9,7 @@ Notable changes to Beamline. There is no release yet; see the
 
 - Mirrors the screen with sound to the Beamline TV app; start and stop in the app or
   from Quick Settings.
-- Picks up again by itself after a Wi-Fi drop.
+- Picks up again by itself after a Wi-Fi drop, also with a VPN such as Tailscale on.
 - Keeps the screen on, dimmed, while mirroring, because Android stops sending the
   picture once the phone locks (can be switched off).
 - Optional HEVC for a sharper picture when the phone and the TV both handle it in
@@ -28,6 +28,9 @@ Notable changes to Beamline. There is no release yet; see the
 
 ### Both
 
+- Encrypted connections (TLS 1.2 or newer). The first time a phone and a TV meet, both
+  show a 6-digit code: confirm it on the phone and press OK on the TV. With the app
+  closed, a Fire TV only opens for paired phones.
 - English and German.
 - `tools/test-sender` streams a test pattern with sound from a PC, for testing the TV
   app without a phone.

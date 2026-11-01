@@ -37,6 +37,12 @@ object ByeReasons {
 
   /** Receiver: its screen didn't come up to show the picture. */
   const val NO_SCREEN = "no_screen"
+
+  /** Receiver: the TV's user declined pairing, or didn't answer in time. */
+  const val PAIRING_DECLINED = "pairing_declined"
+
+  /** Sender: its user saw a different pairing code, or cancelled. */
+  const val PAIRING_REJECTED = "pairing_rejected"
 }
 
 /** Codec names used in discovery records and control messages. */

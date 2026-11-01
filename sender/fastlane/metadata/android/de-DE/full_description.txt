@@ -5,6 +5,7 @@ Beamline spiegelt den Bildschirm deines Android-Handys samt Ton auf einen Fire T
 * Flüssige Wiedergabe geht vor: Der Fernseher hält etwa eine Drittelsekunde in Reserve und überbrückt so kurze WLAN-Aussetzer.
 * Nach einem WLAN-Abbruch verbindet sich die Spiegelung von selbst wieder.
 * Das Handy bleibt beim Spiegeln wach, mit abgedunkeltem Bildschirm, weil Android kein Bild mehr sendet, sobald das Handy gesperrt ist. Ein Schalter stellt das ab.
+* Verschlüsselt: Beim ersten Mal mit einem Fernseher zeigen beide denselben Code, den du einmal bestätigst.
 * Auf Deutsch und Englisch.
 * Keine Werbung, keine Konten, keine Abos, kein Tracking. Freie Software unter der GPLv3.
 

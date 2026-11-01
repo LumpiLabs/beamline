@@ -10,9 +10,11 @@ import android.util.Log
 import android.view.Surface
 import io.github.lumpilabs.beamline.protocol.ByeReasons
 import io.github.lumpilabs.beamline.protocol.FrameRateDetector.StandardRate
+import io.github.lumpilabs.beamline.protocol.Identity
 import io.github.lumpilabs.beamline.protocol.VideoSize
 import java.io.IOException
 import java.net.Inet4Address
+import java.util.concurrent.CompletableFuture
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -23,6 +25,9 @@ sealed interface ReceiverState {
 
   data class Connected(val senderName: String, val video: VideoSize? = null) : ReceiverState
 
+  /** Pairing with [senderName]: [code] shows on both screens. [mustAllow]: OK on the remote is needed too. */
+  data class Pairing(val senderName: String, val code: String, val mustAllow: Boolean) : ReceiverState
+
   data class Failed(val message: String) : ReceiverState
 }
 
@@ -31,7 +36,11 @@ sealed interface ReceiverState {
  * while the TV app is closed, so a phone that connected before can open the app by connecting;
  * elsewhere they run only while the app is on screen. There is one per process, see [ReceiverApp].
  */
-class ReceiverController(private val context: Context, val tvName: String) : MirrorServer.Events {
+class ReceiverController(
+  private val context: Context,
+  val tvName: String,
+  private val identity: Identity,
+) : MirrorServer.Events {
   private val _state = MutableStateFlow<ReceiverState>(ReceiverState.Idle(null))
   val state: StateFlow<ReceiverState> = _state
 
@@ -71,9 +80,12 @@ class ReceiverController(private val context: Context, val tvName: String) : Mir
   private var candidateHz: Float? = null
   private var candidateReports = 0
 
+  /** The TV user's answer to the pairing on screen, if one is waiting. */
+  @Volatile private var pendingPairing: CompletableFuture<Boolean>? = null
+
   fun start() {
     if (server != null) return
-    val newServer = MirrorServer(tvName, { surface }, this)
+    val newServer = MirrorServer(tvName, identity, { surface }, this)
     try {
       val port = newServer.start()
       advertiser.register(tvName, port)
@@ -102,6 +114,8 @@ class ReceiverController(private val context: Context, val tvName: String) : Mir
    */
   fun onScreenHidden() {
     isScreenShown = false
+    // A pairing nobody can answer any more is declined rather than left to time out.
+    answerPairing(false)
     if (ReceiverService.isSupported) server?.endSession(ByeReasons.APP_CLOSED) else stop()
   }
 
@@ -117,16 +131,32 @@ class ReceiverController(private val context: Context, val tvName: String) : Mir
     ReceiverPrefs.setShowStats(context, _showStats.updateAndGet { !it })
   }
 
+  /** OK (true) or Back (false) on the remote while a pairing waits for the TV's user. */
+  fun answerPairing(allowed: Boolean) {
+    pendingPairing?.complete(allowed)
+  }
+
+  override fun isPaired(fingerprint: String): Boolean = ReceiverPrefs.isPairedSender(context, fingerprint)
+
+  override fun rememberPaired(fingerprint: String) = ReceiverPrefs.rememberPairedSender(context, fingerprint)
+
   /**
-   * While the TV app is open, any sender may connect, and is remembered. While it's closed, only
-   * remembered senders may: connecting opens the app for them.
+   * Pairing needs the TV app on screen, for the code and the OK. Paired phones may connect while
+   * it's closed: connecting opens it for them.
    */
-  override fun refusal(senderId: String?): String? {
-    if (isScreenShown) {
-      senderId?.let { ReceiverPrefs.rememberSender(context, it) }
-      return null
-    }
-    return if (senderId != null && ReceiverPrefs.isKnownSender(context, senderId)) null else ByeReasons.OPEN_APP
+  override fun refusal(pairing: Boolean): String? = ByeReasons.OPEN_APP.takeIf { pairing && !isScreenShown }
+
+  override fun askPairing(senderName: String, code: String, mustAllow: Boolean): CompletableFuture<Boolean> {
+    val answer = CompletableFuture<Boolean>()
+    if (mustAllow) pendingPairing = answer else answer.complete(true)
+    _state.value = ReceiverState.Pairing(senderName, code, mustAllow)
+    return answer
+  }
+
+  override fun onPairingFinished() {
+    pendingPairing?.complete(false)
+    pendingPairing = null
+    _state.update { if (it is ReceiverState.Pairing) ReceiverState.Idle(localAddress()) else it }
   }
 
   /** A sender reconnecting after a lost connection keeps its picture on screen until new frames come. */

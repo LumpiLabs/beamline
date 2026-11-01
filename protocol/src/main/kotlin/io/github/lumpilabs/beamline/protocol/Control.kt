@@ -27,7 +27,27 @@ data class Hello(
    * being turned away as busy.
    */
   @SerialName("sender_id") val senderId: String? = null,
+  /**
+   * The sender doesn't know the receiver's certificate yet and wants the user to compare the
+   * pairing code before it sends anything.
+   */
+  val pair: Boolean = false,
 ) : Control
+
+/**
+ * Receiver to sender, instead of [Welcome], when the two still have to pair: both screens show
+ * the [PairingCode]. [receiverConfirms]: the TV's user must allow the sender too, because the TV
+ * doesn't know it yet. [Welcome] follows once the sender sent [PairingConfirm] and, if needed, the
+ * TV's user allowed it; otherwise a [Bye].
+ */
+@Serializable
+@SerialName("pairing")
+data class Pairing(@SerialName("receiver_confirms") val receiverConfirms: Boolean) : Control
+
+/** Sender to receiver: the user saw the same pairing code on both screens. */
+@Serializable
+@SerialName("pairing_confirm")
+data object PairingConfirm : Control
 
 /** Receiver to sender, answer to [Hello] with the chosen version and stream limits. */
 @Serializable
