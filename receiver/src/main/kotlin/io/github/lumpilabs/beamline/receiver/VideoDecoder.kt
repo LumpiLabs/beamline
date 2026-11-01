@@ -39,6 +39,7 @@ class VideoDecoder(
   interface Listener {
     fun onNeedKeyframe()
 
+    /** Called once, on the decoder's thread, when the codec broke; the decoder does nothing more. */
     fun onDecoderError(error: Exception)
   }
 
@@ -50,7 +51,9 @@ class VideoDecoder(
   private val renderTimes = LinkedHashMap<Long, Long>()
   private val feedLater = Runnable { feed() }
   private var waitingForKeyframe = true
-  private var released = false
+
+  /** Released, or broken by an error: either way the codec takes no more calls. */
+  private var stopped = false
 
   /** Local System.nanoTime minus sender time (ns) at which frames are shown, smoothed. */
   @Volatile var renderOffsetNs: Long? = null
@@ -83,7 +86,7 @@ class VideoDecoder(
   fun release() {
     val done = CountDownLatch(1)
     val posted = handler.post {
-      released = true
+      stopped = true
       handler.removeCallbacks(feedLater)
       runCatching { codec.stop() }
       runCatching { codec.release() }
@@ -94,7 +97,7 @@ class VideoDecoder(
   }
 
   private fun enqueue(frame: Frame) {
-    if (released) return
+    if (stopped) return
     val isConfig = frame.hasFlag(FrameFlags.CODEC_CONFIG)
     val isKeyframe = frame.hasFlag(FrameFlags.KEYFRAME)
     if (waitingForKeyframe && !isConfig && !isKeyframe) {
@@ -122,35 +125,51 @@ class VideoDecoder(
 
   /** Moves due frames into the decoder and wakes up again when the next one is due. */
   private fun feed() {
-    if (released) return
+    if (stopped) return
     handler.removeCallbacks(feedLater)
     val now = System.nanoTime()
-    while (freeInputs.isNotEmpty() && pending.isNotEmpty()) {
-      val next = pending.first()
-      val dueAt = next.renderAt?.minus(DECODE_LEAD_NS)
-      if (dueAt != null && dueAt > now) {
-        handler.postDelayed(feedLater, (dueAt - now) / 1_000_000 + 1)
-        return
+    try {
+      while (freeInputs.isNotEmpty() && pending.isNotEmpty()) {
+        val next = pending.first()
+        val dueAt = next.renderAt?.minus(DECODE_LEAD_NS)
+        if (dueAt != null && dueAt > now) {
+          handler.postDelayed(feedLater, (dueAt - now) / 1_000_000 + 1)
+          return
+        }
+        pending.removeFirst()
+        val index = freeInputs.removeFirst()
+        val buffer = codec.getInputBuffer(index) ?: continue
+        val frame = next.frame
+        if (frame.body.size > buffer.capacity()) {
+          freeInputs.addFirst(index)
+          stats.framesDropped.incrementAndGet()
+          waitingForKeyframe = true
+          listener.onNeedKeyframe()
+          continue
+        }
+        buffer.clear()
+        buffer.put(frame.body)
+        var flags = 0
+        if (frame.hasFlag(FrameFlags.CODEC_CONFIG)) flags = flags or MediaCodec.BUFFER_FLAG_CODEC_CONFIG
+        if (frame.hasFlag(FrameFlags.KEYFRAME)) flags = flags or MediaCodec.BUFFER_FLAG_KEY_FRAME
+        next.renderAt?.let { rememberRenderTime(frame.ptsUs, it) }
+        codec.queueInputBuffer(index, 0, frame.body.size, frame.ptsUs, flags)
       }
-      pending.removeFirst()
-      val index = freeInputs.removeFirst()
-      val buffer = codec.getInputBuffer(index) ?: continue
-      val frame = next.frame
-      if (frame.body.size > buffer.capacity()) {
-        freeInputs.addFirst(index)
-        stats.framesDropped.incrementAndGet()
-        waitingForKeyframe = true
-        listener.onNeedKeyframe()
-        continue
-      }
-      buffer.clear()
-      buffer.put(frame.body)
-      var flags = 0
-      if (frame.hasFlag(FrameFlags.CODEC_CONFIG)) flags = flags or MediaCodec.BUFFER_FLAG_CODEC_CONFIG
-      if (frame.hasFlag(FrameFlags.KEYFRAME)) flags = flags or MediaCodec.BUFFER_FLAG_KEY_FRAME
-      next.renderAt?.let { rememberRenderTime(frame.ptsUs, it) }
-      codec.queueInputBuffer(index, 0, frame.body.size, frame.ptsUs, flags)
+    } catch (e: IllegalStateException) {
+      // A broken codec throws here, sometimes before its error callback comes.
+      fail(e)
     }
+  }
+
+  /**
+   * The codec stopped working, typically because the TV app was left and its surface went away.
+   * It's never called again; the listener decides about a new one.
+   */
+  private fun fail(error: IllegalStateException) {
+    if (stopped) return
+    stopped = true
+    handler.removeCallbacks(feedLater)
+    listener.onDecoderError(error)
   }
 
   private fun rememberRenderTime(ptsUs: Long, renderAt: Long) {
@@ -160,30 +179,33 @@ class VideoDecoder(
 
   private inner class Callback : MediaCodec.Callback() {
     override fun onInputBufferAvailable(codec: MediaCodec, index: Int) {
-      if (released) return
+      if (stopped) return
       freeInputs.addLast(index)
       feed()
     }
 
     override fun onOutputBufferAvailable(codec: MediaCodec, index: Int, info: MediaCodec.BufferInfo) {
-      if (released) return
+      if (stopped) return
       val now = System.nanoTime()
       val target = renderTimes.remove(info.presentationTimeUs)
       if (target != null && now - target >= LATE_NS) stats.framesLate.incrementAndGet()
       stats.framesShown.incrementAndGet()
-      val showAt = if (target == null || target <= now + ON_TIME_NS) {
-        codec.releaseOutputBuffer(index, true)
-        now
-      } else {
-        minOf(target, now + MAX_HOLD_NS).also { codec.releaseOutputBuffer(index, it) }
+      val showAt = try {
+        if (target == null || target <= now + ON_TIME_NS) {
+          codec.releaseOutputBuffer(index, true)
+          now
+        } else {
+          minOf(target, now + MAX_HOLD_NS).also { codec.releaseOutputBuffer(index, it) }
+        }
+      } catch (e: IllegalStateException) {
+        fail(e)
+        return
       }
       val offset = showAt - info.presentationTimeUs * 1000
       renderOffsetNs = renderOffsetNs?.let { it + (offset - it) / 8 } ?: offset
     }
 
-    override fun onError(codec: MediaCodec, e: MediaCodec.CodecException) {
-      if (!released) listener.onDecoderError(e)
-    }
+    override fun onError(codec: MediaCodec, e: MediaCodec.CodecException) = fail(e)
 
     override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) = Unit
   }

@@ -200,6 +200,12 @@ class MirrorServer(
     /** The TV ended the session on purpose, so its end is no error. */
     @Volatile private var endedByTv = false
 
+    /**
+     * Set by the decoder's thread when the decoder broke. The session thread then starts a new one
+     * with the next video frame, so only that thread ever creates or releases decoders.
+     */
+    @Volatile private var decoderFailed = false
+
     @Volatile var senderId: String? = null
       private set
 
@@ -343,6 +349,7 @@ class MirrorServer(
           when (frame.type) {
             FrameType.CONTROL -> if (!handleControl(frame)) break
             FrameType.VIDEO -> {
+              if (decoderFailed) restartDecoder()
               if (!frame.hasFlag(FrameFlags.CODEC_CONFIG)) {
                 val now = System.nanoTime()
                 clock.onVideoArrival(frame.ptsUs, now)
@@ -429,6 +436,7 @@ class MirrorServer(
     }
 
     private fun startDecoder(newConfig: StreamConfig) {
+      decoderFailed = false
       decoder?.release()
       decoder = null
       config = newConfig
@@ -458,15 +466,19 @@ class MirrorServer(
       runCatching { send(RequestKeyframe) }
     }
 
+    /**
+     * Replaces a broken decoder. When the TV app was left, the surface doesn't come back and the
+     * session ends as "screen not ready", unless the TV is ending it anyway.
+     */
+    private fun restartDecoder() {
+      val current = config ?: return
+      startDecoder(current)
+      send(RequestKeyframe)
+    }
+
     override fun onDecoderError(error: Exception) {
       Log.w(TAG, "Decoder error, restarting", error)
-      thread(name = "beamline-decoder-restart", isDaemon = true) {
-        val current = config ?: return@thread
-        runCatching {
-          startDecoder(current)
-          send(RequestKeyframe)
-        }
-      }
+      decoderFailed = true
     }
   }
 
