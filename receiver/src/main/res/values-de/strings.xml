@@ -30,7 +30,7 @@
   <string name="stats_wifi">WLAN</string>
   <string name="stats_wifi_value">Ping %1$s, Jitter %2$s, höchster %3$s</string>
   <string name="stats_frames">Frames</string>
-  <string name="stats_frames_value">zu spät %1$d, verworfen %2$d</string>
+  <string name="stats_frames_value">zu spät %1$d, verworfen %2$d, Dekodieren %3$s</string>
   <string name="stats_sound">Ton</string>
   <string name="stats_sound_value">Puffer %1$s, Versatz %2$s</string>
   <string name="stats_sound_off">keiner</string>
