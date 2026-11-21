@@ -22,6 +22,7 @@ import android.view.Display
 import android.view.Surface
 import androidx.core.content.ContextCompat
 import io.github.lumpilabs.beamline.protocol.AudioConfig
+import io.github.lumpilabs.beamline.protocol.BitrateController
 import io.github.lumpilabs.beamline.protocol.Bye
 import io.github.lumpilabs.beamline.protocol.ByeReasons
 import io.github.lumpilabs.beamline.protocol.Codecs
@@ -42,6 +43,7 @@ import io.github.lumpilabs.beamline.protocol.Pong
 import io.github.lumpilabs.beamline.protocol.Protocol
 import io.github.lumpilabs.beamline.protocol.ProtocolException
 import io.github.lumpilabs.beamline.protocol.RequestKeyframe
+import io.github.lumpilabs.beamline.protocol.SendQueue
 import io.github.lumpilabs.beamline.protocol.StreamConfig
 import io.github.lumpilabs.beamline.protocol.StreamSizing
 import io.github.lumpilabs.beamline.protocol.Tls
@@ -129,11 +131,37 @@ class SenderSession(
   /** The HEVC encoder wouldn't start once; H.264 for the rest of the session. */
   private var hevcFailed = false
 
+  /** Follows the network from the first encoder on, across reconnects and new sizes. */
+  private var bitrate: BitrateController? = null
+
+  /** The system send buffer for the current bitrate, see [SendQueue.socketBufferBytes]. */
+  @Volatile private var socketBufferBytes = SendQueue.MAX_SOCKET_BUFFER_BYTES
+
   @Volatile private var lastCodecConfig: ByteArray? = null
 
   @Volatile private var lastAudioConfig: ByteArray? = null
 
-  private class Link(val socket: Socket, val writer: FrameWriter, val reader: FrameReader, val welcome: Welcome)
+  /** One connection to the TV. Frames go out through [queue], on its own thread. */
+  private inner class Link(
+    val socket: Socket,
+    /** The TCP socket under [socket]'s encryption. */
+    val tcp: Socket,
+    val writer: FrameWriter,
+    val reader: FrameReader,
+    val welcome: Welcome,
+  ) : SendQueue.Listener {
+    val queue = SendQueue(this)
+
+    override fun onCongested() {
+      handler.post { onVideoSkipped() }
+    }
+
+    override fun onWriteFailed(error: IOException) {
+      // Closing wakes the link thread, which reconnects.
+      link.compareAndSet(this, null)
+      runCatching { socket.close() }
+    }
+  }
 
   fun start() {
     MirrorState.set(appContext, MirrorStatus.Connecting(target.name))
@@ -162,6 +190,7 @@ class SenderSession(
     MirrorState.set(appContext, if (error != null) MirrorStatus.Failed(error) else MirrorStatus.Idle)
     runCatching { connectivity.unregisterNetworkCallback(networkCallback) }
     val last = link.getAndSet(null)
+    last?.queue?.close()
     val connecting = connectingSocket
     // Writing can block on a dead connection, so the goodbye goes out on its own thread.
     thread(name = "beamline-bye", isDaemon = true) {
@@ -208,8 +237,10 @@ class SenderSession(
         }
         return
       }
+      current.queue.start(current.writer)
       link.set(current)
       if (stopped.get()) {
+        current.queue.close()
         runCatching { current.socket.close() }
         return
       }
@@ -218,6 +249,7 @@ class SenderSession(
       handler.post { attach(current) }
       val bye = readControl(current)
       link.compareAndSet(current, null)
+      current.queue.close()
       runCatching { current.socket.close() }
       if (bye != null || stopped.get()) {
         stop(bye?.let(::byeMessage))
@@ -236,6 +268,7 @@ class SenderSession(
     try {
       if (network != null && mayBindToNetwork) bindToNetwork(socket, network)
       socket.tcpNoDelay = true
+      socket.sendBufferSize = socketBufferBytes
       socket.connect(InetSocketAddress(target.host, target.port), CONNECT_TIMEOUT_MS)
       socket.soTimeout = CONNECT_TIMEOUT_MS
       val secure = Tls.client(tls, socket, target.host, target.port)
@@ -264,7 +297,7 @@ class SenderSession(
       if (!known) SenderPrefs.rememberPairedReceiver(appContext, fingerprint)
       secure.soTimeout = LINK_TIMEOUT_MS
       needsLocalNetwork = network != null
-      return Link(secure, writer, reader, welcome)
+      return Link(secure, socket, writer, reader, welcome)
     } catch (e: IOException) {
       runCatching { socket.close() }
       throw e
@@ -447,6 +480,7 @@ class SenderSession(
     override fun run() {
       if (stopped.get()) return
       send(Ping(nextId++, nowUs()))
+      followNetwork()
       handler.postDelayed(this, PING_INTERVAL_MS)
     }
   }
@@ -461,9 +495,14 @@ class SenderSession(
     val fps = min(welcome.maxFps, MAX_FPS)
     val codec = if (useHevc(size, fps)) Codecs.HEVC else Codecs.H264
     val config = StreamConfig(codec, size.width, size.height, fps)
+    // Control messages overtake waiting video, so frames of the old stream must not follow this.
+    link.get()?.queue?.clearVideo()
     send(config)
+    val maxBps = ScreenEncoder.bitrateFor(size, fps)
+    val bps = bitrate?.setMax(maxBps) ?: BitrateController(maxBps).also { bitrate = it }.bps
+    fitSocketBuffer(bps)
     val newEncoder = try {
-      ScreenEncoder(codec, size, fps, ScreenEncoder.bitrateFor(size, fps), encoderSink)
+      ScreenEncoder(codec, size, fps, bps, encoderSink)
     } catch (e: Exception) {
       if (codec == Codecs.H264) throw e
       // The new stream config tells the TV to switch its decoder back too.
@@ -527,18 +566,35 @@ class SenderSession(
   private fun write(frame: Frame) = write(frame.type, frame.flags, frame.ptsUs, frame.body, frame.body.size)
 
   /**
-   * Sends the first [length] bytes of [body] as one frame to the current connection. Without one
+   * Queues the first [length] bytes of [body] as one frame for the current connection. Without one
    * (while reconnecting) the frame is dropped.
    */
   private fun write(type: FrameType, flags: Int, ptsUs: Long, body: ByteArray, length: Int) {
-    val current = link.get() ?: return
-    try {
-      current.writer.write(type, flags, ptsUs, body, length)
-    } catch (_: IOException) {
-      // Closing wakes the link thread, which reconnects.
-      link.compareAndSet(current, null)
-      runCatching { current.socket.close() }
-    }
+    link.get()?.queue?.offer(type, flags, ptsUs, body, length)
+  }
+
+  /** The send queue skipped video: ask for a keyframe to resume with, and send less. */
+  private fun onVideoSkipped() {
+    encoder?.requestKeyframe()
+    bitrate?.onCongested()?.let { applyBitrate(it, "video skipped") }
+  }
+
+  /** Once a second: lower the bitrate when frames wait to be sent, raise it after calm stretches. */
+  private fun followNetwork() {
+    val waitNs = link.get()?.queue?.takeLongestWaitNs() ?: return
+    bitrate?.onLongestWait(waitNs)?.let { applyBitrate(it, "frames waited up to ${waitNs / 1_000_000} ms") }
+  }
+
+  private fun applyBitrate(bps: Int, reason: String) {
+    Log.i(TAG, "Bitrate %.1f Mbit/s: %s".format(bps / 1e6, reason))
+    encoder?.setBitrate(bps)
+    fitSocketBuffer(bps)
+  }
+
+  /** The system's send buffer keeps holding about the same time's worth of video at any bitrate. */
+  private fun fitSocketBuffer(bps: Int) {
+    socketBufferBytes = SendQueue.socketBufferBytes(bps)
+    link.get()?.let { current -> runCatching { current.tcp.sendBufferSize = socketBufferBytes } }
   }
 
   private val encoderSink = object : ScreenEncoder.Sink {

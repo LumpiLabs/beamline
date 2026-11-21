@@ -1,5 +1,7 @@
 package io.github.lumpilabs.beamline.receiver
 
+import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -75,6 +77,7 @@ class MainActivity : ComponentActivity() {
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
+    applyDebugExtras(intent)
     val tvName = controller.tvName
     // From now on the TV stays ready for phones in the background, also after a restart.
     ReceiverService.start(this)
@@ -140,6 +143,23 @@ class MainActivity : ComponentActivity() {
     return super.onKeyDown(keyCode, event)
   }
 
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    applyDebugExtras(intent)
+  }
+
+  /**
+   * Debug builds only, for trying a weak Wi-Fi: `adb shell am start -n
+   * io.github.lumpilabs.beamline.receiver/.MainActivity --ei debug_read_kbps 3000` reads phones no
+   * faster than 3 Mbit/s, and 0 goes back to full speed.
+   */
+  private fun applyDebugExtras(intent: Intent?) {
+    if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE == 0) return
+    if (intent?.hasExtra(DEBUG_READ_KBPS) != true) return
+    controller.debugReadKbps = intent.getIntExtra(DEBUG_READ_KBPS, 0)
+    Log.i(TAG, "Reading phones at ${controller.debugReadKbps} kbit/s (0: full speed)")
+  }
+
   /**
    * Asks the TV for a refresh rate that shows the content evenly, for example 50 Hz for 25 fps
    * video, at the current resolution. Null returns to the TV's default.
@@ -201,6 +221,8 @@ class MainActivity : ComponentActivity() {
 
     /** Manifest.permission.ACCESS_LOCAL_NETWORK, spelled out because the constant is API 37. */
     const val LOCAL_NETWORK_PERMISSION = "android.permission.ACCESS_LOCAL_NETWORK"
+
+    const val DEBUG_READ_KBPS = "debug_read_kbps"
   }
 }
 
