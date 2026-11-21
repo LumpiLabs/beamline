@@ -9,7 +9,9 @@ object ReceiverPrefs {
   private const val FILE = "beamline"
   private const val FILL = "fill"
   private const val SHOW_STATS = "show_stats"
-  private const val PAIRED_SENDERS = "paired_senders"
+
+  /** One entry per paired phone, keyed by its certificate fingerprint, see [PairedSender.encode]. */
+  private const val PAIRED_FILE = "paired_senders"
 
   fun fill(context: Context): Boolean = prefs(context).getBoolean(FILL, true)
 
@@ -19,16 +21,32 @@ object ReceiverPrefs {
 
   fun setShowStats(context: Context, show: Boolean) = prefs(context).edit { putBoolean(SHOW_STATS, show) }
 
-  /** Certificate fingerprints of the phones paired with this TV. */
-  fun isPairedSender(context: Context, fingerprint: String): Boolean =
-    fingerprint in prefs(context).getStringSet(PAIRED_SENDERS, emptySet()).orEmpty()
+  /** The phones paired with this TV, the one used last first. */
+  fun pairedSenders(context: Context): List<PairedSender> =
+    paired(context).all
+      .mapNotNull { (fingerprint, value) -> (value as? String)?.let { PairedSender.decode(fingerprint, it) } }
+      .sortedByDescending { it.lastUsedMs }
+
+  fun isPairedSender(context: Context, fingerprint: String): Boolean = paired(context).contains(fingerprint)
 
   @Synchronized
-  fun rememberPairedSender(context: Context, fingerprint: String) {
-    val paired = prefs(context).getStringSet(PAIRED_SENDERS, emptySet()).orEmpty()
-    if (fingerprint !in paired) prefs(context).edit { putStringSet(PAIRED_SENDERS, paired + fingerprint) }
+  fun rememberPairedSender(context: Context, fingerprint: String, name: String, nowMs: Long) {
+    paired(context).edit { putString(fingerprint, PairedSender(fingerprint, name, nowMs, nowMs).encode()) }
   }
+
+  /** A paired phone connected: keeps its newest name and when it was last used. */
+  @Synchronized
+  fun touchPairedSender(context: Context, fingerprint: String, name: String, nowMs: Long) {
+    val sender = paired(context).getString(fingerprint, null)?.let { PairedSender.decode(fingerprint, it) } ?: return
+    paired(context).edit { putString(fingerprint, sender.copy(name = name, lastUsedMs = nowMs).encode()) }
+  }
+
+  @Synchronized
+  fun forgetPairedSender(context: Context, fingerprint: String) = paired(context).edit { remove(fingerprint) }
 
   private fun prefs(context: Context): SharedPreferences =
     context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+
+  private fun paired(context: Context): SharedPreferences =
+    context.applicationContext.getSharedPreferences(PAIRED_FILE, Context.MODE_PRIVATE)
 }

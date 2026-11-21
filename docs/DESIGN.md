@@ -136,8 +136,8 @@ Both answers matter. The phone's keeps it from sending its screen to a device in
 between; the TV's keeps strangers on the network from pairing with it on their own,
 which a confirmation on the phone alone couldn't stop. Each side waits two minutes
 for its user. Pairing needs the TV app on screen, so with the app closed only paired
-phones get in. Settings to forget paired phones are planned (M5); until then,
-clearing the app's data forgets them all.
+phones get in. The TV's settings list the paired phones; one forgotten there has to
+pair again.
 
 ## Sender (phone)
 
@@ -232,6 +232,10 @@ clearing the app's data forgets them all.
   chunks, skipped sound, restarts). Counts carry over a reconnect. The delay runs
   from capture on the phone to the TV handing the frame to its screen, so the TV's
   own picture processing comes on top. The same figures go to the log once a minute.
+- **Settings:** with no phone connected, OK or Menu opens the settings, worked with the
+  D-pad: fill the screen, show the statistics, and the paired phones with when each
+  last connected. Forgetting one asks first, with Cancel picked. Each connection
+  updates the phone's name and last use. A phone connecting closes the settings.
 - **Ready in the background:** on Fire OS 6 and 7 (Android 7.1 to 9) a foreground
   service keeps the server and the network announcement up while the TV app is
   closed; it starts when the app is first opened and again after the TV boots. A paired

@@ -27,7 +27,8 @@ No ads, accounts, subscriptions or tracking. In English and German.
 
 On the TV, OK switches between filling the screen and showing the whole picture, and
 Menu shows how mirroring is going: frame rate, delay, Wi-Fi jitter, dropped frames and
-sound gaps.
+sound gaps. With no phone connected, OK opens the settings, where you can also forget
+a paired phone.
 
 Copy-protected video (Netflix, Disney+ and similar) shows black when mirrored, as it
 does with every mirroring app. The Android phone's built-in Cast button can't target

@@ -10,18 +10,23 @@ import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -33,6 +38,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalView
@@ -41,7 +48,10 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.tv.material3.Button
+import androidx.tv.material3.ListItem
 import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.Switch
 import androidx.tv.material3.Text
 import androidx.tv.material3.darkColorScheme
 import io.github.lumpilabs.beamline.protocol.Codecs
@@ -54,6 +64,9 @@ import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
   private val controller get() = (application as ReceiverApp).controller
+
+  /** The settings, opened with OK or Menu while no phone is connected. */
+  private var settingsOpen by mutableStateOf(false)
 
   private val requestLocalNetwork =
     registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -71,19 +84,44 @@ class MainActivity : ComponentActivity() {
         val fill by controller.fill.collectAsState()
         val refreshRate by controller.refreshRate.collectAsState()
         val showStats by controller.showStats.collectAsState()
+        val pairedSenders by controller.pairedSenders.collectAsState()
         // Followed only while showing, so the screen isn't recomposed every second for nothing.
         val stats = if (showStats) controller.stats.collectAsState().value else null
         LaunchedEffect(refreshRate) { applyRefreshRate(refreshRate) }
-        ReceiverScreen(state, tvName, fill, stats, onSurface = { controller.surface = it })
+        // A phone connecting takes over the screen, and the settings stay closed after it leaves.
+        LaunchedEffect(state) { if (!state.isIdle) settingsOpen = false }
+        Box(Modifier.fillMaxSize()) {
+          ReceiverScreen(state, tvName, fill, stats, onSurface = { controller.surface = it })
+          if (settingsOpen) {
+            SettingsScreen(
+              fill = fill,
+              showStats = showStats,
+              pairedSenders = pairedSenders,
+              onToggleFill = controller::toggleFill,
+              onToggleStats = controller::toggleStats,
+              onForget = controller::forgetSender,
+              onClose = { settingsOpen = false },
+            )
+          }
+        }
       }
     }
   }
 
   /**
    * OK on the remote switches between filling the screen and showing the whole picture; Menu shows
-   * or hides the statistics (Up does too, for remotes without a Menu button).
+   * or hides the statistics (Up does too, for remotes without a Menu button). With no phone
+   * connected, OK or Menu opens the settings.
    */
   override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+    if (settingsOpen && keyCode == KeyEvent.KEYCODE_MENU) {
+      settingsOpen = false
+      return true
+    }
+    if (!settingsOpen && controller.state.value.isIdle && (keyCode in OK_KEYS || keyCode == KeyEvent.KEYCODE_MENU)) {
+      settingsOpen = true
+      return true
+    }
     // While a new phone waits to pair, OK allows it and Back declines it (instead of leaving the app).
     val pairing = controller.state.value as? ReceiverState.Pairing
     if (pairing?.mustAllow == true && (keyCode in OK_KEYS || keyCode == KeyEvent.KEYCODE_BACK)) {
@@ -401,6 +439,148 @@ private fun StatusScreen(state: ReceiverState, tvName: String) {
       style = MaterialTheme.typography.bodySmall,
       color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
+    if (state.isIdle) {
+      Text(
+        stringResource(R.string.idle_settings_hint),
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.onBackground,
+        modifier = Modifier.padding(top = 24.dp),
+      )
+    }
+  }
+}
+
+/** The TV's settings, worked with the remote: OK switches or picks, Back closes. */
+@Composable
+private fun SettingsScreen(
+  fill: Boolean,
+  showStats: Boolean,
+  pairedSenders: List<PairedSender>,
+  onToggleFill: () -> Unit,
+  onToggleStats: () -> Unit,
+  onForget: (fingerprint: String) -> Unit,
+  onClose: () -> Unit,
+) {
+  var forgetting by remember { mutableStateOf<PairedSender?>(null) }
+  BackHandler { if (forgetting != null) forgetting = null else onClose() }
+  forgetting?.let { sender ->
+    ForgetScreen(
+      sender,
+      onForget = {
+        onForget(sender.fingerprint)
+        forgetting = null
+      },
+      onCancel = { forgetting = null },
+    )
+    return
+  }
+
+  val first = remember { FocusRequester() }
+  LaunchedEffect(Unit) { first.requestFocus() }
+  val now = System.currentTimeMillis()
+  Column(
+    modifier = Modifier
+      .fillMaxSize()
+      .background(MaterialTheme.colorScheme.background)
+      .padding(horizontal = 96.dp, vertical = 48.dp),
+    verticalArrangement = Arrangement.spacedBy(16.dp),
+  ) {
+    Text(
+      stringResource(R.string.settings_title),
+      style = MaterialTheme.typography.headlineMedium,
+      color = MaterialTheme.colorScheme.onBackground,
+    )
+    LazyColumn(
+      modifier = Modifier.weight(1f),
+      verticalArrangement = Arrangement.spacedBy(8.dp),
+      contentPadding = PaddingValues(vertical = 8.dp),
+    ) {
+      item {
+        SettingSwitch(R.string.settings_fill, R.string.settings_fill_summary, fill, onToggleFill, Modifier.focusRequester(first))
+      }
+      item { SettingSwitch(R.string.settings_stats, R.string.settings_stats_summary, showStats, onToggleStats) }
+      item {
+        Text(
+          stringResource(R.string.settings_paired),
+          style = MaterialTheme.typography.titleMedium,
+          color = MaterialTheme.colorScheme.onBackground,
+          modifier = Modifier.padding(top = 24.dp, bottom = 4.dp),
+        )
+      }
+      if (pairedSenders.isEmpty()) {
+        item {
+          Text(
+            stringResource(R.string.settings_paired_none),
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+      }
+      items(pairedSenders, key = { it.fingerprint }) { sender ->
+        val lastUsed = DateUtils.getRelativeTimeSpanString(sender.lastUsedMs, now, DateUtils.MINUTE_IN_MILLIS)
+        ListItem(
+          selected = false,
+          onClick = { forgetting = sender },
+          headlineContent = { Text(sender.name) },
+          supportingContent = { Text(stringResource(R.string.settings_paired_last_used, lastUsed)) },
+          trailingContent = { Text(stringResource(R.string.settings_paired_forget)) },
+        )
+      }
+    }
+    Text(
+      stringResource(R.string.settings_close_hint),
+      style = MaterialTheme.typography.bodySmall,
+      color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+  }
+}
+
+@Composable
+private fun SettingSwitch(
+  @StringRes title: Int,
+  @StringRes summary: Int,
+  checked: Boolean,
+  onToggle: () -> Unit,
+  modifier: Modifier = Modifier,
+) {
+  ListItem(
+    selected = false,
+    onClick = onToggle,
+    headlineContent = { Text(stringResource(title)) },
+    supportingContent = { Text(stringResource(summary)) },
+    // Shows the state only: OK on the whole row switches it.
+    trailingContent = { Switch(checked = checked, onCheckedChange = null) },
+    modifier = modifier,
+  )
+}
+
+/** Asks before forgetting, with Cancel picked, so one press too many does no harm. */
+@Composable
+private fun ForgetScreen(sender: PairedSender, onForget: () -> Unit, onCancel: () -> Unit) {
+  val cancel = remember { FocusRequester() }
+  LaunchedEffect(Unit) { cancel.requestFocus() }
+  Column(
+    modifier = Modifier
+      .fillMaxSize()
+      .background(MaterialTheme.colorScheme.background)
+      .padding(48.dp),
+    verticalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterVertically),
+    horizontalAlignment = Alignment.CenterHorizontally,
+  ) {
+    Text(
+      stringResource(R.string.forget_title, sender.name),
+      style = MaterialTheme.typography.headlineMedium,
+      color = MaterialTheme.colorScheme.onBackground,
+    )
+    Text(
+      stringResource(R.string.forget_explanation),
+      style = MaterialTheme.typography.bodyLarge,
+      color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+      Button(onClick = onCancel, modifier = Modifier.focusRequester(cancel)) { Text(stringResource(R.string.forget_cancel)) }
+      Button(onClick = onForget) { Text(stringResource(R.string.forget_confirm)) }
+    }
   }
 }
 
@@ -409,6 +589,26 @@ private fun StatusScreen(state: ReceiverState, tvName: String) {
 private fun IdlePreview() {
   MaterialTheme(colorScheme = darkColorScheme()) {
     StatusScreen(ReceiverState.Idle("192.168.1.50"), "Fire TV Stick 4K Max")
+  }
+}
+
+@Preview(device = "id:tv_1080p")
+@Composable
+private fun SettingsPreview() {
+  val now = System.currentTimeMillis()
+  MaterialTheme(colorScheme = darkColorScheme()) {
+    SettingsScreen(
+      fill = true,
+      showStats = false,
+      pairedSenders = listOf(
+        PairedSender("a1", "Galaxy S26+", now - 86_400_000, now - 600_000),
+        PairedSender("b2", "Pixel 8", now - 7 * 86_400_000, now - 3 * 86_400_000),
+      ),
+      onToggleFill = {},
+      onToggleStats = {},
+      onForget = {},
+      onClose = {},
+    )
   }
 }
 

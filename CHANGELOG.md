@@ -24,6 +24,8 @@ Notable changes to Beamline. There is no release yet; see the
 - OK on the remote switches between filling the screen and showing the whole picture.
 - Menu shows statistics: frame rate, delay behind the phone, Wi-Fi jitter, late and
   dropped frames, decode time and sound gaps.
+- Settings, opened with OK while no phone is connected: fill the screen, statistics,
+  and the paired phones with when each last connected, each of which can be forgotten.
 - On Fire TV, a phone that has mirrored once can open the app by connecting, also after
   the TV restarts.
 

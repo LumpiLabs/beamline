@@ -72,9 +72,10 @@ class MirrorServer(
     /** Pairing is over, either way: the code can go. */
     fun onPairingFinished()
 
-    fun rememberPaired(fingerprint: String)
+    fun rememberPaired(fingerprint: String, senderName: String)
 
-    fun onConnected(senderName: String)
+    /** A paired sender is in, with the certificate [fingerprint]. */
+    fun onConnected(senderName: String, fingerprint: String)
 
     fun onVideoSize(size: VideoSize)
 
@@ -225,7 +226,8 @@ class MirrorServer(
           send(Bye("unsupported protocol version"))
           return
         }
-        val paired = events.isPaired(Identity.fingerprintOf(senderCertificate))
+        val fingerprint = Identity.fingerprintOf(senderCertificate)
+        val paired = events.isPaired(fingerprint)
         val pairing = !paired || hello.pair
         val refusal = events.refusal(pairing) ?: ByeReasons.BUSY.takeIf { isBusyFor(hello.senderId) }
         if (refusal != null) {
@@ -240,7 +242,7 @@ class MirrorServer(
           return
         }
         send(Welcome(version, tvName, MAX_SIZE.width, MAX_SIZE.height, MAX_FPS, listOf(Codecs.OPUS), videoCodecs))
-        events.onConnected(hello.name)
+        events.onConnected(hello.name, fingerprint)
         stream()
       } catch (e: IOException) {
         reason = when {
@@ -328,7 +330,7 @@ class MirrorServer(
           end(ByeReasons.PAIRING_DECLINED)
           return false
         }
-        if (mustAllow) events.rememberPaired(fingerprint)
+        if (mustAllow) events.rememberPaired(fingerprint, senderName)
         Log.i(TAG, "Paired with $senderName")
         return true
       } finally {

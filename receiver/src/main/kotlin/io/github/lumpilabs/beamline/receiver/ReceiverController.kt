@@ -21,6 +21,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.updateAndGet
 
 sealed interface ReceiverState {
+  /** No phone connected or pairing: the TV shows its status, and the settings can open. */
+  val isIdle: Boolean get() = this is Idle || this is Failed
+
   data class Idle(val address: String?, val lastError: String? = null) : ReceiverState
 
   data class Connected(val senderName: String, val video: VideoSize? = null) : ReceiverState
@@ -59,6 +62,10 @@ class ReceiverController(
   /** Whether the statistics overlay is on; it stays on, also after a restart, until switched off. */
   private val _showStats = MutableStateFlow(ReceiverPrefs.showStats(context))
   val showStats: StateFlow<Boolean> = _showStats
+
+  /** The phones paired with this TV, for the settings; the one used last first. */
+  private val _pairedSenders = MutableStateFlow(ReceiverPrefs.pairedSenders(context))
+  val pairedSenders: StateFlow<List<PairedSender>> = _pairedSenders
 
   @Volatile var surface: Surface? = null
 
@@ -136,9 +143,18 @@ class ReceiverController(
     pendingPairing?.complete(allowed)
   }
 
+  /** The phone has to pair again before it can mirror here, or open the TV app by connecting. */
+  fun forgetSender(fingerprint: String) {
+    ReceiverPrefs.forgetPairedSender(context, fingerprint)
+    _pairedSenders.value = ReceiverPrefs.pairedSenders(context)
+  }
+
   override fun isPaired(fingerprint: String): Boolean = ReceiverPrefs.isPairedSender(context, fingerprint)
 
-  override fun rememberPaired(fingerprint: String) = ReceiverPrefs.rememberPairedSender(context, fingerprint)
+  override fun rememberPaired(fingerprint: String, senderName: String) {
+    ReceiverPrefs.rememberPairedSender(context, fingerprint, senderName, System.currentTimeMillis())
+    _pairedSenders.value = ReceiverPrefs.pairedSenders(context)
+  }
 
   /**
    * Pairing needs the TV app on screen, for the code and the OK. Paired phones may connect while
@@ -160,7 +176,9 @@ class ReceiverController(
   }
 
   /** A sender reconnecting after a lost connection keeps its picture on screen until new frames come. */
-  override fun onConnected(senderName: String) {
+  override fun onConnected(senderName: String, fingerprint: String) {
+    ReceiverPrefs.touchPairedSender(context, fingerprint, senderName, System.currentTimeMillis())
+    _pairedSenders.value = ReceiverPrefs.pairedSenders(context)
     wifiLock?.acquire()
     _state.update {
       if (it is ReceiverState.Connected && it.senderName == senderName) it else ReceiverState.Connected(senderName)
