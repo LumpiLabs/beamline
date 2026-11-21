@@ -24,7 +24,8 @@ No ads, accounts, subscriptions or tracking. In English and German.
 - **Android phones:** install the Beamline sender app and tap the TV in the app or
   in Quick Settings. While mirroring, the phone's screen stays on, dimmed, because
   Android stops sending the picture once the phone locks; a switch in the app turns
-  that off.
+  that off. For presenting and games, another switch shows the picture with much less
+  delay, at the cost of some smoothness, with the sound trailing a little.
 
 On the TV, OK switches between filling the screen and showing the whole picture, and
 Menu shows how mirroring is going: frame rate, delay, Wi-Fi jitter, dropped frames and

@@ -312,8 +312,11 @@ TV in `hello` (`low_latency`), so it applies from the next start. Then:
   Decoding without holding back), and skips waiting video once it is 100 ms old
   instead of 250.
 
-From the PC test sender (no capture or encoding, no sound), the picture is 63 to 65 ms
-behind the sender in this mode at 25 and 60 fps, against 256 ms without it.
+From the PC test sender (no capture or encoding), the picture is 63 to 65 ms behind the
+sender in this mode at 25 and 60 fps, against 256 ms without it and without sound, or
+482 ms with sound. With sound, the sound trails the picture by 195 ms, about 55 ms of
+it queued, and a Wi-Fi hiccup that empties the queue costs a gap of a few hundred
+milliseconds.
 
 ## Known limits
 
