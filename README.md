@@ -4,13 +4,14 @@
 [![License: GPL v3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
 
 Free, open-source screen mirroring to Fire TV and Android TV: one TV app for iPads,
-iPhones and Macs (over AirPlay) and Android phones (with the Beamline sender app).
-No ads, accounts, subscriptions or tracking. In English and German.
+iPhones and Macs (over AirPlay), Android phones (with the Beamline sender app) and
+Windows computers (with Beamline for Windows). No ads, accounts, subscriptions or
+tracking. In English and German.
 
 > **Status:** in development, nothing to install yet. A Galaxy S26+ mirrors smoothly
 > with sound to a Fire TV Stick 4K Max, gets softer rather than falling behind on a weak
 > Wi-Fi, and picks up again by itself after a Wi-Fi drop;
-> the Pixel 8, the iPad (AirPlay) and laptops are still to come. See the [design](docs/DESIGN.md) and [roadmap](docs/ROADMAP.md).
+> the Windows app is being tried out, and the Pixel 8 and the iPad (AirPlay) are still to come. See the [design](docs/DESIGN.md) and [roadmap](docs/ROADMAP.md).
 
 ## How it works
 
@@ -26,6 +27,9 @@ No ads, accounts, subscriptions or tracking. In English and German.
   Android stops sending the picture once the phone locks; a switch in the app turns
   that off. For presenting and games, another switch shows the picture with much less
   delay, at the cost of some smoothness, with the sound trailing a little.
+- **Windows computers:** open Beamline for Windows, pick the TV and the screen, and
+  click Start mirroring. It sends the whole screen with the computer's sound, encoded by the
+  graphics card; to show a browser tab, put the browser in full screen (F11).
 
 On the TV, OK switches between filling the screen and showing the whole picture, and
 Menu shows how mirroring is going: frame rate, delay, Wi-Fi jitter, dropped frames and
@@ -58,7 +62,22 @@ ANDROID_SERIAL=192.168.1.50:5555 ./gradlew :receiver:installDebug
 | `protocol` | Wire format shared by both apps (frames, control messages, pairing codes). |
 | `sender` | Android phone app, Android 10 and newer. |
 | `receiver` | Fire TV / Android TV app, Android 7.1 (Fire OS 6) and newer. |
+| `windows-sender` | Windows app, Windows 10 and 11 (64-bit). |
 | `tools/test-sender` | PC tool that streams a test pattern to the TV app, for testing without a phone. |
+
+The Windows app captures through a small C++ library, built with MinGW-w64: its `g++`
+on Windows (for example from [WinLibs](https://winlibs.com/)), or
+`x86_64-w64-mingw32-g++` on Linux (`apt install g++-mingw-w64-x86-64`). Without one,
+the build leaves the library out and the app can't capture. To try it, build it and
+start it; it needs Java 21 or newer for now:
+
+```bash
+./gradlew :windows-sender:installDist
+windows-sender/build/install/beamline/bin/beamline.bat
+```
+
+`beamline.bat --tv=192.168.1.50` mirrors from the console instead of the window, and
+`--record=test.h264` encodes the screen into a file, for checking capture without a TV.
 
 To check a TV without a phone, open Beamline on the TV and run:
 

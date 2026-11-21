@@ -26,8 +26,8 @@ TV), so smooth playback matters more than a low delay.
  iPad ──AirPlay──────────────┐
                              ▼
  Pixel 8 ──Beamline protocol──► Beamline TV app (Fire TV / Android TV)
- Galaxy S26+ ─Beamline protocol┘   ├─ AirPlay receiver (UxPlay via JNI)
-                                    └─ Beamline receiver (Kotlin)
+ Galaxy S26+ ─Beamline protocol┤   ├─ AirPlay receiver (UxPlay via JNI)
+ Windows laptop ─Beamline prot.┘   └─ Beamline receiver (Kotlin)
 ```
 
 Gradle modules:
@@ -37,6 +37,7 @@ Gradle modules:
 | `protocol` | Kotlin/JVM library | Message types, framing, versioning, pairing code derivation. No Android dependencies, so it is unit-tested on the JVM. |
 | `sender` | Android app, minSdk 29 | Runs on the phones. Screen capture, encoding, discovery, pairing, Quick Settings tile. |
 | `receiver` | Android TV app, minSdk 25 | Runs on the Fire TV. Discovery advertisement, decoding, playback, TV UI. |
+| `windows-sender` | Kotlin/JVM app with a C++ library | Runs on Windows laptops. Screen and sound capture, hardware encoding, discovery, pairing. |
 | `airplay` | Android library with native code (added in M4) | UxPlay compiled with the NDK plus JNI bindings, used by `receiver`. |
 
 Package names use the `io.github.lumpilabs.beamline` namespace.
@@ -205,6 +206,38 @@ pair again.
   Android 13 and newer the app offers to add the tile. A small invisible activity shows
   the prompt, because a tile can't show it itself.
 
+## Sender (Windows)
+
+A Kotlin/JVM app that shares `protocol` with the phone, so pairing, TLS, the send queue
+and the bitrate rules are the same code. Capture and encoding live in a small C++
+library (`beamline-media.dll`, built with MinGW-w64 and called through JNA), because
+they are Windows COM APIs:
+
+- **Capture:** Desktop Duplication of one screen, on the GPU that shows it. A D3D11
+  video processor scales the picture to the stream size and converts it to NV12
+  (BT.709, TV range). Pictures come when the screen changes, at most at the stream's
+  frame rate, stamped with the time Windows showed them; a still screen sends its last
+  picture again every 100 ms, as the phone does. The mouse cursor isn't drawn. While
+  Windows doesn't let the screen be captured (locked, a UAC prompt), the TV keeps the
+  last picture and capture resumes afterwards; a new resolution starts a new stream.
+- **Encoding:** the Media Foundation H.264 encoder of that GPU (NVIDIA, AMD or Intel),
+  or Windows' software encoder without one. Constant bitrate, low-latency mode, no
+  B-frames, a keyframe every 10 seconds or on request
+  (`CODECAPI_AVEncVideoForceKeyFrame`), and bitrate changes while it runs
+  (`CODECAPI_AVEncCommonMeanBitRate`), so the send queue and the bitrate rules work as
+  on the phone. Stream size, frame rate and highest bitrate are the phone's too.
+- **Sound:** WASAPI loopback of the default output device, 48 kHz stereo, stamped with
+  the device's own timestamps on the performance counter, the clock the pictures and
+  pings use. Windows delivers nothing while nothing plays, so silence fills the gaps
+  and the TV's sound clock keeps running. Opus at 128 kbit/s in 20 ms frames, with
+  libopus.
+- **UI:** a small window that lists the TVs found over DNS-SD (with JmDNS, on every
+  private IPv4 network, so a VPN such as Tailscale doesn't hide the home network) and
+  takes an address by hand, the screens, the low-latency switch, Start and Stop, and
+  the pairing question. `--tv=<address>` mirrors from the console instead. The key,
+  the paired TVs and the choices are kept in `%APPDATA%\Beamline`, with a log of the
+  last run.
+
 ## Receiver (TV)
 
 - **Video:** `MediaCodec` decoding straight to a `SurfaceView`. Compressed frames wait
@@ -337,6 +370,9 @@ milliseconds.
 - When a phone locks, Android stops sending the screen's picture. The phone app keeps
   the screen on while mirroring, but the power button still locks it. On the iPad,
   AirPlay video keeps playing while locked (M4).
+- The Windows app mirrors whole screens, without the mouse cursor; HDR and rotated
+  screens aren't supported yet. Until the release bundles one, it needs Java 21 or
+  newer.
 
 ## Testing
 
@@ -353,6 +389,9 @@ milliseconds.
   or more. Every run is the same sender; `--sender=<name>` connects as another one,
   like a second phone, and `--reconnect` as one coming back after a lost connection,
   for trying the busy handling.
+- The Windows app's `--record=<file>` encodes the screen into an H.264 file and
+  reports the frames and the sound level that came in, for checking capture without a
+  TV.
 - Weak Wi-Fi: debug builds of the TV app read the phone's stream no faster than
   `adb shell am start -n io.github.lumpilabs.beamline.receiver/.MainActivity --ei
   debug_read_kbps 3000` allows (kbit/s; 0 is full speed again), keeping a small
