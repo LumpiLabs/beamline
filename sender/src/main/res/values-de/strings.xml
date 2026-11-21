@@ -41,7 +41,7 @@
   <string name="hevc">Schärferes Bild mit HEVC</string>
   <string name="hevc_explanation">Verwendet HEVC statt H.264, wenn Handy und Fernseher es beide in Hardware können: ein schärferes Bild bei gleicher WLAN-Last. Gilt ab dem nächsten Start.</string>
   <string name="low_latency">Weniger Verzögerung für Präsentationen und Spiele</string>
-  <string name="low_latency_explanation">Der Fernseher zeigt das Bild etwa eine Zehntelsekunde hinter dem Handy statt einer Drittelsekunde. Bewegungen können weniger flüssig sein und der Ton kann bei schwachem WLAN aussetzen. Verwendet H.264, das Fernseher schneller dekodieren. Gilt ab dem nächsten Start.</string>
+  <string name="low_latency_explanation">Der Fernseher zeigt das Bild etwa eine Zehntelsekunde hinter dem Handy statt einer halben Sekunde. Bewegungen können weniger flüssig sein und der Ton kann bei schwachem WLAN aussetzen. Verwendet H.264, das Fernseher schneller dekodieren. Gilt ab dem nächsten Start.</string>
   <string name="tile_connecting">Verbinde…</string>
   <string name="tile_reconnecting">Verbinde wieder…</string>
   <string name="tile_pick_tv">Tippen, um einen Fernseher zu wählen</string>

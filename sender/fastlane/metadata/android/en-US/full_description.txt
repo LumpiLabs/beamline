@@ -3,6 +3,7 @@ Beamline mirrors your Android phone's screen, with sound, to a Fire TV or Androi
 * One tap in the app or in Quick Settings starts and stops mirroring.
 * Sound from your apps plays on the TV, in sync with the picture. Beamline only captures what apps play, never the microphone.
 * Smooth playback comes first: the TV keeps about a third of a second in hand, which hides short Wi-Fi hiccups.
+* For presenting and games, a switch shows the picture with much less delay, at the cost of some smoothness, with the sound trailing a little.
 * After a Wi-Fi drop, mirroring picks up again by itself.
 * The phone stays awake, dimmed, while mirroring, because Android stops sending the picture once the phone locks. A switch turns this off.
 * Encrypted: the first time with a TV, both show the same code, and you confirm it once.

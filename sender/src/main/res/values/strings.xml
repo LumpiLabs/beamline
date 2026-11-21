@@ -42,7 +42,7 @@
   <string name="hevc">Sharper picture with HEVC</string>
   <string name="hevc_explanation">Uses HEVC instead of H.264 when the phone and the TV both handle it in hardware: a sharper picture over the same Wi-Fi. Applies from the next start.</string>
   <string name="low_latency">Less delay for presenting and games</string>
-  <string name="low_latency_explanation">The TV shows the picture about a tenth of a second behind the phone instead of a third. Motion can be less smooth and sound can break up on a weak Wi-Fi. Uses H.264, which TVs decode faster. Applies from the next start.</string>
+  <string name="low_latency_explanation">The TV shows the picture about a tenth of a second behind the phone instead of half a second. Motion can be less smooth and sound can break up on a weak Wi-Fi. Uses H.264, which TVs decode faster. Applies from the next start.</string>
   <string name="tile_connecting">Connecting…</string>
   <string name="tile_reconnecting">Reconnecting…</string>
   <string name="tile_pick_tv">Tap to pick a TV</string>
