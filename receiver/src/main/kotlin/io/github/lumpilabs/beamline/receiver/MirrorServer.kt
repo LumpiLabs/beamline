@@ -87,6 +87,9 @@ class MirrorServer(
 
     /** [reason] is null when the sender ended the session itself. */
     fun onDisconnected(reason: EndReason?)
+
+    /** For tests on debug builds: read from senders no faster than this, or 0 for full speed. */
+    fun readLimitKbps(): Int
   }
 
   /** Why a session ended, for the TV's idle screen. */
@@ -290,7 +293,7 @@ class MirrorServer(
       (socket as SSLSocket).startHandshake()
       senderCertificate = Tls.peerCertificate(socket)
       writer = FrameWriter(socket.getOutputStream())
-      reader = FrameReader(socket.getInputStream())
+      reader = FrameReader(ThrottledInputStream(socket, events::readLimitKbps))
       val hello = reader.read()?.let(::controlOrNull) as? Hello
         ?: throw ProtocolException("The sender didn't start with hello")
       senderId = hello.senderId

@@ -155,9 +155,27 @@ pair again.
   stream, long keyframe interval with keyframes on demand
   (`PARAMETER_KEY_REQUEST_SYNC_FRAME`). Output is scaled to the receiver's limit,
   2560×1080 at up to 60 fps by default: Full HD height, and wide enough that a 20:9
-  phone in landscape keeps full detail when the TV fills its screen. The bitrate is
-  about 1/16 bit per pixel per frame, between 2 and 12 Mbit/s (about 9 Mbit/s for a
-  landscape phone).
+  phone in landscape keeps full detail when the TV fills its screen. The highest
+  bitrate is about 1/16 bit per pixel per frame, between 2 and 12 Mbit/s (about
+  9 Mbit/s for a landscape phone).
+- **Weak Wi-Fi:** frames go out on a thread of their own, from a send queue where
+  control messages and sound overtake waiting video, through a socket whose send buffer
+  follows the bitrate: about a tenth of a second of video once Linux has doubled it
+  (between 8 and 64 KB). A slow network then shows up as frames waiting in the queue,
+  where they can still be skipped, instead of video hidden in the system's buffer. Once the oldest
+  waiting video frame is 250 ms old, the waiting video is dropped, the phone skips the
+  encoder's output until the next keyframe and asks for one, and the bitrate goes down
+  to 60%; if frames waited more than 80 ms in the last second, it goes down to 80%. One
+  stall shows up several times (as skipped video, in the next second's waits, in
+  keyframes skipped while it lasts), so cuts within a second of each other don't add
+  up: each is taken from the rate before the first, and the deepest counts. After calm
+  stretches, with every frame out within 20 ms, the bitrate comes back 15% every 3
+  seconds, starting 10 seconds after skipped video or 5 seconds after a backlog, up to
+  the stream's highest. From 85% of the rate at which frames last backed up it goes on
+  only 5% every 5 seconds, since a big step there would likely back them up again and
+  the TV may show that as a stutter; 15% past that rate, the big steps come back. It
+  never goes below an eighth of the highest or 1 Mbit/s, and keeps its share of the
+  highest when the stream restarts with a new size.
 - **Keep-alive:** some encoders (Samsung's) ignore `KEY_REPEAT_PREVIOUS_FRAME_AFTER`
   and send nothing while the screen is still, so the phone sends a `ping` every second.
 - **Reconnect:** the TV answers every `ping`, so 5 seconds without anything from it
@@ -263,17 +281,12 @@ pair again.
 
 Smooth playback comes first: the TV plays about a third of a second behind the phone,
 which hides Wi-Fi hiccups of that length without a stutter. Picture and sound stay in
-sync with each other; only the phone itself is ahead.
+sync with each other; only the phone itself is ahead. On a Wi-Fi too slow for the
+stream, the phone lowers the bitrate and skips video rather than letting the delay
+grow (see Weak Wi-Fi under Sender).
 
-Planned for M3:
-
-- An optional low-latency mode for presenting and games, under 150 ms from phone
-  screen to TV screen on 5 GHz Wi-Fi, with a small buffer.
-- The sender never queues: if the socket's unsent data exceeds about two frames, it
-  skips encoder output until the next keyframe, asks the encoder for one, and lowers
-  the bitrate.
-- Bitrate adapts between 2 and 20 Mbit/s based on send backlog and receiver `stats`
-  (decode queue length, late frames).
+Planned for M3: an optional low-latency mode for presenting and games, under 150 ms
+from phone screen to TV screen on 5 GHz Wi-Fi, with a small buffer.
 
 ## Known limits
 
@@ -290,13 +303,19 @@ Planned for M3:
 
 ## Testing
 
-- `protocol`: JVM unit tests for framing, CBOR messages and pairing codes.
+- `protocol`: JVM unit tests for framing, CBOR messages, pairing codes, the send queue
+  and the bitrate rules.
 - Device tests over adb: the Fire TV plus both phones over wireless
   debugging. Scripts install builds, start sessions and pull logs and statistics.
 - `tools/test-sender` streams a test pattern, optionally with sound from an Ogg Opus
   file, to the TV from a PC, so the TV app can be checked without a phone. With
   `--hiccup=<second>` it stalls for a second and then sends everything at once, like
   Wi-Fi; `--hiccup=0` gives the burst a reconnecting phone causes.
+- Weak Wi-Fi: debug builds of the TV app read the phone's stream no faster than
+  `adb shell am start -n io.github.lumpilabs.beamline.receiver/.MainActivity --ei
+  debug_read_kbps 3000` allows (kbit/s; 0 is full speed again), keeping a small
+  receive buffer meanwhile so the phone notices at once, as it would on a weak Wi-Fi.
+  The phone logs each bitrate change and why.
 - Latency: the statistics overlay plus a stopwatch-style test pattern in the sender
   app, filmed with a phone camera for a glass-to-glass check.
 - CI: GitHub Actions builds all APKs and runs unit tests on every push.

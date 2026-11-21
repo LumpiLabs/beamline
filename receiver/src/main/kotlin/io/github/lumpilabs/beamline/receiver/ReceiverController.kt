@@ -69,6 +69,9 @@ class ReceiverController(
 
   @Volatile var surface: Surface? = null
 
+  /** Set from adb on debug builds, see [MirrorServer.Events.readLimitKbps]. */
+  @Volatile var debugReadKbps = 0
+
   /** Whether the TV app is on screen. Set on the main thread, read on session threads. */
   @Volatile var isScreenShown = false
     private set
@@ -223,6 +226,8 @@ class ReceiverController(
   override fun onStats(stats: StatsSnapshot) {
     _stats.value = stats
   }
+
+  override fun readLimitKbps(): Int = debugReadKbps
 
   override fun onDisconnected(reason: MirrorServer.EndReason?) {
     wifiLock?.release()
