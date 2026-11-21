@@ -24,8 +24,8 @@ The details are in the [design](docs/DESIGN.md#security-and-pairing).
 
 Beamline is still in development.
 
-- The TV can't yet forget a single paired phone; clearing the TV app's data forgets
-  all of them (and the phone app's data, all TVs).
+- The TV forgets a paired phone in its settings. The phone app can't yet forget a
+  single TV; clearing its data forgets all of them.
 - Whoever can press OK on the TV remote while a new phone pairs decides whether it may
   mirror. That is on purpose, as for any TV.
 - The apps haven't had an independent security review.
