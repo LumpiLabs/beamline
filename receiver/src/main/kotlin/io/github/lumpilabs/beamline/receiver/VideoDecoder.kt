@@ -11,6 +11,7 @@ import android.view.Surface
 import io.github.lumpilabs.beamline.protocol.Codecs
 import io.github.lumpilabs.beamline.protocol.Frame
 import io.github.lumpilabs.beamline.protocol.FrameFlags
+import io.github.lumpilabs.beamline.protocol.H264Sps
 import io.github.lumpilabs.beamline.protocol.StreamConfig
 import io.github.lumpilabs.beamline.protocol.VideoSize
 import java.util.concurrent.CountDownLatch
@@ -47,6 +48,7 @@ class VideoDecoder(
   private val thread = HandlerThread("beamline-decoder").also { it.start() }
   private val handler = Handler(thread.looper)
   private val codec: MediaCodec
+  private val isH264 = config.codec == Codecs.H264
   private val freeInputs = ArrayDeque<Int>()
   private val pending = ArrayDeque<Pending>()
 
@@ -75,6 +77,7 @@ class VideoDecoder(
       setInteger(MediaFormat.KEY_PRIORITY, 0)
       setInteger(MediaFormat.KEY_OPERATING_RATE, Short.MAX_VALUE.toInt())
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
+      setInteger(FIRE_OS_LOW_LATENCY, 1)
     }
     codec = MediaCodec.createDecoderByType(mime)
     codec.setCallback(Callback(), handler)
@@ -101,10 +104,12 @@ class VideoDecoder(
     thread.quitSafely()
   }
 
-  private fun enqueue(frame: Frame) {
+  private fun enqueue(received: Frame) {
     if (stopped) return
-    val isConfig = frame.hasFlag(FrameFlags.CODEC_CONFIG)
-    val isKeyframe = frame.hasFlag(FrameFlags.KEYFRAME)
+    val isConfig = received.hasFlag(FrameFlags.CODEC_CONFIG)
+    val isKeyframe = received.hasFlag(FrameFlags.KEYFRAME)
+    // Parameter sets come with the codec config and, from phones, in front of every keyframe.
+    val frame = if (isH264 && (isConfig || isKeyframe)) withoutReordering(received) else received
     if (waitingForKeyframe && !isConfig && !isKeyframe) {
       stats.framesDropped.incrementAndGet()
       return
@@ -175,6 +180,12 @@ class VideoDecoder(
     stopped = true
     handler.removeCallbacks(feedLater)
     listener.onDecoderError(error)
+  }
+
+  /** See [H264Sps]: without this, some decoders hold every picture until the next one comes. */
+  private fun withoutReordering(frame: Frame): Frame {
+    val body = H264Sps.withoutReordering(frame.body)
+    return if (body === frame.body) frame else Frame(frame.type, frame.flags, frame.ptsUs, body)
   }
 
   private fun remember(ptsUs: Long, frame: Decoding) {
@@ -259,6 +270,14 @@ class VideoDecoder(
       }
 
     private const val MAX_INPUT_SIZE = 4 * 1024 * 1024
+
+    /**
+     * Fire OS's own switch for what Android 11 calls [MediaFormat.KEY_LOW_LATENCY] (in its
+     * libstagefright, mapped to "OMX.amazon.fireos.index.video.lowLatencyDecode"). Without it, the
+     * Fire TV Stick 4K Max's decoder holds each frame until two more have gone in: 80 ms at 25 fps,
+     * and on a still screen the last change doesn't show at all. Other decoders ignore the key.
+     */
+    private const val FIRE_OS_LOW_LATENCY = "vdec-lowlatency"
 
     /** About two seconds at 60 fps; a normal buffer holds a few hundred milliseconds. */
     private const val MAX_PENDING = 120

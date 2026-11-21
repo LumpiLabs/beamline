@@ -22,15 +22,15 @@ import kotlin.math.max
 import kotlin.math.min
 
 /**
- * Decodes the sender's Opus audio and plays it. Playback starts once [START_BUFFER_MS] is queued,
- * which absorbs Wi-Fi bursts; when more than [MAX_BUFFERED_MS] piles up, a chunk is dropped to
- * keep the delay bounded.
+ * Decodes the sender's Opus audio and plays it. Playback starts once a cushion is queued
+ * ([START_BUFFER_MS], or [LOW_LATENCY_START_BUFFER_MS] in [lowLatency] mode), which absorbs Wi-Fi
+ * bursts; when more than twice that piles up, a chunk is dropped to keep the delay bounded.
  *
  * A burst can also leave the queue high for good: after a reconnect, or after the TV's audio
- * output paused for a refresh-rate switch, it can sit near [MAX_BUFFERED_MS], where the slightest
- * bunching of packets drops chunks. When even its lowest level stays [TRIM_MARGIN_MS] above the
- * start cushion for [TRIM_WINDOW_NS], the excess is skipped once, in one piece. The same keeps the
- * two devices' clocks drifting apart over a long session from adding delay.
+ * output paused for a refresh-rate switch, it can sit near that limit, where the slightest
+ * bunching of packets drops chunks. When even its lowest level stays a margin above the start
+ * cushion for [TRIM_WINDOW_NS], the excess is skipped once, in one piece. The same keeps the two
+ * devices' clocks drifting apart over a long session from adding delay.
  *
  * Before Android 12, a started or flushed track only plays once its whole buffer is full. While
  * filling, the track's usable size is therefore shrunk to the start cushion, and grown back once
@@ -44,7 +44,14 @@ import kotlin.math.min
  * queue level and every gap are counted in [stats]. All codec and track calls happen on one
  * handler thread.
  */
-class AudioPlayer(private val config: AudioConfig, private val stats: PlaybackStats) {
+class AudioPlayer(
+  private val config: AudioConfig,
+  private val stats: PlaybackStats,
+  lowLatency: Boolean = false,
+) {
+  private val startBufferMs = if (lowLatency) LOW_LATENCY_START_BUFFER_MS else START_BUFFER_MS
+  private val maxBufferedMs = startBufferMs * 2
+  private val trimMarginMs = startBufferMs / 3
   private val thread = HandlerThread("beamline-audio").also { it.start() }
   private val handler = Handler(thread.looper)
   private val bytesPerFrame = config.channels * 2
@@ -181,7 +188,7 @@ class AudioPlayer(private val config: AudioConfig, private val stats: PlaybackSt
     stats.soundQueuedMs = queued * 1000 / config.sampleRate
     if (trimFrames > 0) {
       trimFrames -= frames
-    } else if (queued > framesFor(MAX_BUFFERED_MS)) {
+    } else if (queued > framesFor(maxBufferedMs)) {
       stats.soundDroppedChunks.incrementAndGet()
     } else {
       pending.addLast(Pcm(pcm, ptsUs))
@@ -204,8 +211,8 @@ class AudioPlayer(private val config: AudioConfig, private val stats: PlaybackSt
     floorFrames = min(floorFrames, queued)
     val now = System.nanoTime()
     if (now - floorSinceNs < TRIM_WINDOW_NS) return
-    if (floorFrames > framesFor(START_BUFFER_MS + TRIM_MARGIN_MS)) {
-      trimFrames = floorFrames - framesFor(START_BUFFER_MS)
+    if (floorFrames > framesFor(startBufferMs + trimMarginMs)) {
+      trimFrames = floorFrames - framesFor(startBufferMs)
       val ms = trimFrames * 1000 / config.sampleRate
       stats.soundSkippedMs.addAndGet(ms)
       Log.i(TAG, "Skipping $ms ms of sound to bring the delay back down")
@@ -233,7 +240,7 @@ class AudioPlayer(private val config: AudioConfig, private val stats: PlaybackSt
 
   /** Lets the track start as soon as the start cushion is queued instead of its whole buffer. */
   private fun shrinkForStart() {
-    track.setBufferSizeInFrames(framesFor(START_BUFFER_MS))
+    track.setBufferSizeInFrames(framesFor(startBufferMs))
     startFrames = track.bufferSizeInFrames
     expanded = false
   }
@@ -313,12 +320,14 @@ class AudioPlayer(private val config: AudioConfig, private val stats: PlaybackSt
 
   private companion object {
     const val TAG = "BeamlineAudio"
-    /** Smooth playback matters more than low delay: about a third of a second of cushion. */
+    /**
+     * Smooth playback matters more than low delay: about a third of a second of cushion. Normal
+     * Wi-Fi jitter keeps dipping the queue well below a third of it above the cushion.
+     */
     const val START_BUFFER_MS = 300
-    const val MAX_BUFFERED_MS = 600
 
-    /** Normal Wi-Fi jitter keeps dipping the queue well below this much above the cushion. */
-    const val TRIM_MARGIN_MS = 100
+    /** Four Opus packets: sound may break up on a busy Wi-Fi, but trails the picture less. */
+    const val LOW_LATENCY_START_BUFFER_MS = 80
     const val TRIM_WINDOW_NS = 2_000_000_000L
     const val TRACK_BUFFER_MS = 1000
     const val MAX_SEGMENTS = 200

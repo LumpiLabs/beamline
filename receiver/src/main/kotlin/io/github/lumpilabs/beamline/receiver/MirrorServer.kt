@@ -197,6 +197,9 @@ class MirrorServer(
     private var config: StreamConfig? = null
     private val clock = PlaybackClock { audio?.audibleOffsetNs }
     private val clockSync = ClockSync()
+
+    /** The sender asked for the picture with little delay, see [PlaybackClock.lowLatency]. */
+    private var lowLatency = false
     private var nextPingId = 0
     private var loggedMinute = -1L
     private val ended = CountDownLatch(1)
@@ -246,6 +249,9 @@ class MirrorServer(
         }
         send(Welcome(version, tvName, MAX_SIZE.width, MAX_SIZE.height, MAX_FPS, listOf(Codecs.OPUS), videoCodecs))
         events.onConnected(hello.name, fingerprint)
+        lowLatency = hello.lowLatency
+        clock.lowLatency = lowLatency
+        if (lowLatency) Log.i(TAG, "${hello.name} asked for low latency")
         stream()
       } catch (e: IOException) {
         reason = when {
@@ -421,7 +427,7 @@ class MirrorServer(
     private fun startAudio(audioConfig: AudioConfig) {
       audio?.release()
       audio = try {
-        AudioPlayer(audioConfig, stats)
+        AudioPlayer(audioConfig, stats, lowLatency)
       } catch (e: Exception) {
         Log.w(TAG, "Can't play this audio, continuing without sound", e)
         null

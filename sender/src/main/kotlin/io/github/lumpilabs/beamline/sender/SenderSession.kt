@@ -95,6 +95,9 @@ class SenderSession(
   private val identity = SenderPrefs.identity(appContext)
   private val tls = Tls.context(identity)
 
+  /** For the whole session, also after reconnecting: the TV sets itself up for it when connecting. */
+  private val lowLatency = SenderPrefs.lowLatency(appContext)
+
   /** The user's answer to "does the TV show the same code?", while that question is open. */
   @Volatile private var pendingPairing: CompletableFuture<Boolean>? = null
 
@@ -150,7 +153,7 @@ class SenderSession(
     val reader: FrameReader,
     val welcome: Welcome,
   ) : SendQueue.Listener {
-    val queue = SendQueue(this)
+    val queue = SendQueue(this, if (lowLatency) SendQueue.LOW_LATENCY_MAX_BACKLOG_NS else SendQueue.DEFAULT_MAX_BACKLOG_NS)
 
     override fun onCongested() {
       handler.post { onVideoSkipped() }
@@ -277,7 +280,15 @@ class SenderSession(
       val known = SenderPrefs.isPairedReceiver(appContext, fingerprint)
       val writer = FrameWriter(secure.outputStream)
       val reader = FrameReader(secure.inputStream)
-      val hello = Hello(listOf(Protocol.VERSION), deviceName(), listOf(Codecs.H264), listOf(Codecs.OPUS), senderId, pair = !known)
+      val hello = Hello(
+        listOf(Protocol.VERSION),
+        deviceName(),
+        listOf(Codecs.H264),
+        listOf(Codecs.OPUS),
+        senderId,
+        pair = !known,
+        lowLatency = lowLatency,
+      )
       writer.write(ControlCodec.toFrame(hello))
       var reply = readControlMessage(reader)
       if (reply is Pairing) {
@@ -519,10 +530,12 @@ class SenderSession(
 
   /**
    * HEVC gives a sharper picture at the same bitrate, but only when the user switched it on, the TV
-   * decodes it and the phone encodes it in hardware at this size.
+   * decodes it and the phone encodes it in hardware at this size. Not in low-latency mode: the TV
+   * makes sure H.264 pictures come out of its decoder at once (see H264Sps), not HEVC ones.
    */
   private fun useHevc(size: VideoSize, fps: Int): Boolean =
-    SenderPrefs.hevc(appContext) &&
+    !lowLatency &&
+      SenderPrefs.hevc(appContext) &&
       !hevcFailed &&
       Codecs.HEVC in welcome.videoCodecs &&
       ScreenEncoder.hardwareEncoder(Codecs.HEVC, size, fps) != null

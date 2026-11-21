@@ -169,6 +169,9 @@ class SendQueue(
      */
     const val DEFAULT_MAX_BACKLOG_NS = 250_000_000L
 
+    /** In low-latency mode the TV is less than this behind the phone; older frames are of no use. */
+    const val LOW_LATENCY_MAX_BACKLOG_NS = 100_000_000L
+
     /**
      * The system send buffer to set for video at [bps]: about a tenth of a second once Linux has
      * doubled it. More than a Wi-Fi round trip needs, little enough that a slow network shows up

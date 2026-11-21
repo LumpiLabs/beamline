@@ -17,6 +17,9 @@ Notable changes to Beamline. There is no release yet; see the
   picture once the phone locks (can be switched off).
 - Optional HEVC for a sharper picture when the phone and the TV both handle it in
   hardware.
+- Optional low latency for presenting and games: the TV shows the picture about a
+  tenth of a second behind the phone instead of over half a second, with sound
+  trailing a little.
 - Clear messages when the TV can't be reached, is busy, or was closed.
 
 ### TV app
@@ -24,6 +27,9 @@ Notable changes to Beamline. There is no release yet; see the
 - Smooth, evenly paced playback with sound in sync; switches the TV to 50 Hz for 25 fps
   video. Frames go to the decoder as early as it needs, measured all the time, and after
   a stall the picture catches up with the sound within seconds.
+- The Fire TV's decoder no longer holds each picture back until the next one arrives,
+  so a still screen shows its last change at once, and decoding takes 5 to 10 ms
+  instead of 40 to 85.
 - OK on the remote switches between filling the screen and showing the whole picture.
 - Menu shows statistics: frame rate, delay behind the phone, Wi-Fi jitter, late and
   dropped frames, decode time and sound gaps.

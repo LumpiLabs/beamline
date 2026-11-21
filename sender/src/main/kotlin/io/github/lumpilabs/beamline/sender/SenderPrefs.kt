@@ -18,6 +18,7 @@ object SenderPrefs {
   private const val SENDER_ID = "sender_id"
   private const val KEEP_AWAKE = "keep_awake"
   private const val HEVC = "hevc"
+  private const val LOW_LATENCY = "low_latency"
   private const val PAIRED_RECEIVERS = "paired_receivers"
 
   @Volatile private var identity: Identity? = null
@@ -74,6 +75,11 @@ object SenderPrefs {
   fun hevc(context: Context): Boolean = prefs(context).getBoolean(HEVC, false)
 
   fun setHevc(context: Context, hevc: Boolean) = prefs(context).edit { putBoolean(HEVC, hevc) }
+
+  /** Little delay for presenting and games instead of smooth playback, see Hello.lowLatency. */
+  fun lowLatency(context: Context): Boolean = prefs(context).getBoolean(LOW_LATENCY, false)
+
+  fun setLowLatency(context: Context, lowLatency: Boolean) = prefs(context).edit { putBoolean(LOW_LATENCY, lowLatency) }
 
   /** Random id the TV uses to recognize this phone when it reconnects after a lost connection. */
   @Synchronized
