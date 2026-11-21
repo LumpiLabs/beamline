@@ -87,6 +87,7 @@ class MainActivity : ComponentActivity() {
         val fill by controller.fill.collectAsState()
         val refreshRate by controller.refreshRate.collectAsState()
         val showStats by controller.showStats.collectAsState()
+        val allowTakeOver by controller.allowTakeOver.collectAsState()
         val pairedSenders by controller.pairedSenders.collectAsState()
         // Followed only while showing, so the screen isn't recomposed every second for nothing.
         val stats = if (showStats) controller.stats.collectAsState().value else null
@@ -99,9 +100,11 @@ class MainActivity : ComponentActivity() {
             SettingsScreen(
               fill = fill,
               showStats = showStats,
+              allowTakeOver = allowTakeOver,
               pairedSenders = pairedSenders,
               onToggleFill = controller::toggleFill,
               onToggleStats = controller::toggleStats,
+              onToggleTakeOver = controller::toggleTakeOver,
               onForget = controller::forgetSender,
               onClose = { settingsOpen = false },
             )
@@ -477,9 +480,11 @@ private fun StatusScreen(state: ReceiverState, tvName: String) {
 private fun SettingsScreen(
   fill: Boolean,
   showStats: Boolean,
+  allowTakeOver: Boolean,
   pairedSenders: List<PairedSender>,
   onToggleFill: () -> Unit,
   onToggleStats: () -> Unit,
+  onToggleTakeOver: () -> Unit,
   onForget: (fingerprint: String) -> Unit,
   onClose: () -> Unit,
 ) {
@@ -521,6 +526,7 @@ private fun SettingsScreen(
         SettingSwitch(R.string.settings_fill, R.string.settings_fill_summary, fill, onToggleFill, Modifier.focusRequester(first))
       }
       item { SettingSwitch(R.string.settings_stats, R.string.settings_stats_summary, showStats, onToggleStats) }
+      item { SettingSwitch(R.string.settings_take_over, R.string.settings_take_over_summary, allowTakeOver, onToggleTakeOver) }
       item {
         Text(
           stringResource(R.string.settings_paired),
@@ -622,12 +628,14 @@ private fun SettingsPreview() {
     SettingsScreen(
       fill = true,
       showStats = false,
+      allowTakeOver = false,
       pairedSenders = listOf(
         PairedSender("a1", "Galaxy S26+", now - 86_400_000, now - 600_000),
         PairedSender("b2", "Pixel 8", now - 7 * 86_400_000, now - 3 * 86_400_000),
       ),
       onToggleFill = {},
       onToggleStats = {},
+      onToggleTakeOver = {},
       onForget = {},
       onClose = {},
     )

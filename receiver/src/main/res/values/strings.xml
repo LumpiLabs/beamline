@@ -26,6 +26,8 @@
   <string name="settings_fill_summary">Landscape pictures fill the screen, with the edges cut off. Off: the whole picture with black bars. While mirroring, OK switches.</string>
   <string name="settings_stats">Show statistics</string>
   <string name="settings_stats_summary">In the top left corner while mirroring. Menu switches them too.</string>
+  <string name="settings_take_over">Let another phone take over</string>
+  <string name="settings_take_over_summary">A paired phone that starts mirroring replaces the one on screen. Off: it\'s told the TV is busy. A phone that still has to pair waits until the TV is free.</string>
   <string name="settings_paired">Paired phones</string>
   <string name="settings_paired_none">No phone paired yet.</string>
   <string name="settings_paired_last_used">Last connected %1$s</string>

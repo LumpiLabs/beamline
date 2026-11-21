@@ -29,6 +29,9 @@ object ByeReasons {
   /** Receiver: it is showing another sender. */
   const val BUSY = "busy"
 
+  /** Receiver, where its user lets senders take over: another sender took this one's place. */
+  const val REPLACED = "replaced"
+
   /** Receiver, while its app is closed: this sender never connected while the app was open. */
   const val OPEN_APP = "open_app"
 

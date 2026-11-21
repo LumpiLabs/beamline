@@ -25,6 +25,7 @@
   <string name="error_capture_denied">Screen capture wasn\'t allowed.</string>
   <string name="error_unreachable">Couldn\'t reach %1$s. Is Beamline open on the TV, and are both on the same Wi-Fi?</string>
   <string name="error_tv_busy">%1$s is showing another device.</string>
+  <string name="error_tv_replaced">Another device took over %1$s.</string>
   <string name="error_tv_declined">%1$s turned the connection down: %2$s</string>
   <string name="error_pairing_cancelled">Pairing with %1$s was cancelled.</string>
   <string name="error_pairing_declined">Pairing was declined on %1$s.</string>

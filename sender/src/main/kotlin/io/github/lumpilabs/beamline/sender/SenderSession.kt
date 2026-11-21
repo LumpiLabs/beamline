@@ -224,11 +224,12 @@ class SenderSession(
     var lostAtMs = 0L
     while (!stopped.get()) {
       val current = try {
-        connect()
+        connect(reconnect = connectedOnce)
       } catch (e: IOException) {
-        // A "no" to pairing ends the session, also while reconnecting: asking again won't help.
-        val pairingFailed = e is PairingCancelled || (e is TvDeclined && e.reason == ByeReasons.PAIRING_DECLINED)
-        if (!connectedOnce || pairingFailed) {
+        // A "no" from the TV or to pairing ends the session, also while reconnecting: asking
+        // again won't help. Another phone may have taken over meanwhile, for example.
+        val answered = e is PairingCancelled || e is TvDeclined
+        if (!connectedOnce || answered) {
           Log.i(TAG, "Connecting failed: ${e.message}")
           stop(connectFailure(e))
         } else if (SystemClock.elapsedRealtime() - lostAtMs > RECONNECT_WINDOW_MS) {
@@ -263,7 +264,8 @@ class SenderSession(
     }
   }
 
-  private fun connect(): Link {
+  /** [reconnect]: after a lost connection, see Hello.reconnect. */
+  private fun connect(reconnect: Boolean): Link {
     val network = localNetwork
     if (network == null && needsLocalNetwork) throw IOException("No Wi-Fi")
     val socket = Socket()
@@ -288,6 +290,7 @@ class SenderSession(
         senderId,
         pair = !known,
         lowLatency = lowLatency,
+        reconnect = reconnect,
       )
       writer.write(ControlCodec.toFrame(hello))
       var reply = readControlMessage(reader)
@@ -361,6 +364,7 @@ class SenderSession(
       e is PairingCancelled -> appContext.getString(R.string.error_pairing_cancelled, target.name)
       e is TvDeclined && e.reason == ByeReasons.PAIRING_DECLINED -> appContext.getString(R.string.error_pairing_declined, target.name)
       e is TvDeclined && e.reason == ByeReasons.BUSY -> appContext.getString(R.string.error_tv_busy, target.name)
+      e is TvDeclined && e.reason == ByeReasons.REPLACED -> appContext.getString(R.string.error_tv_replaced, target.name)
       e is TvDeclined && e.reason == ByeReasons.OPEN_APP -> appContext.getString(R.string.error_tv_open_app, target.name)
       e is TvDeclined -> appContext.getString(R.string.error_tv_declined, target.name, e.reason)
       // A TLS failure means it isn't a Beamline TV, or one with an older app.
@@ -379,6 +383,7 @@ class SenderSession(
     when (bye.reason) {
       ByeReasons.APP_CLOSED -> appContext.getString(R.string.error_tv_app_closed, target.name)
       ByeReasons.NO_SCREEN -> appContext.getString(R.string.error_tv_no_screen, target.name)
+      ByeReasons.REPLACED -> appContext.getString(R.string.error_tv_replaced, target.name)
       else -> null
     }
 

@@ -83,13 +83,14 @@ CBOR two-element arrays of the form `["<name>", {...}]`, the body a map with sna
 field names; unknown fields are ignored and unknown message names are skipped, so newer
 peers can add both. Messages: `hello` (versions, device name, capabilities, a
 `sender_id` that stays the same for one install of the sender app, `pair` when the
-sender doesn't know the receiver yet, and `low_latency` for presenting and games, see
-Delay), `pairing` and `pairing_confirm` (see below),
+sender doesn't know the receiver yet, `low_latency` for presenting and games, see
+Delay, and `reconnect` after a lost connection, see Sessions), `pairing` and
+`pairing_confirm` (see below),
 `welcome` (chosen version, stream limits, and the audio and video codecs the receiver
 plays; a receiver that lists no video codecs takes H.264), `stream` (codec, width, height, fps,
 rotation, sent before each new video config), `request_keyframe`, `bitrate_hint`,
 `ping`/`pong` (round-trip time and clock offset), `stats`, and `bye` (with reason; the
-receiver's reasons "busy", "open_app", "app_closed", "no_screen" and
+receiver's reasons "busy", "replaced", "open_app", "app_closed", "no_screen" and
 "pairing_declined" get their own message on the phone, others are shown as they are;
 the sender says "pairing_rejected" when its user saw a different code).
 Both sides ping once a second. The sender's `time_us` in pings and pongs is on the
@@ -278,11 +279,17 @@ pair again.
 - **Leaving the app:** Home or Back while mirroring ends the session with `bye`
   "app_closed", so the phone stops and says why instead of reconnecting and pulling
   the user back into the app.
-- **Sessions:** one active stream at a time. A second sender gets a "TV is busy"
-  answer, or replaces the current stream if the user allows that in settings. The TV
-  ends a session after 10 seconds without data. A phone that comes back sooner (same
-  `sender_id`) replaces its old connection right away instead of being turned away as
-  busy, and the last picture stays on screen until the new one arrives.
+- **Sessions:** one active stream at a time. A second sender gets `bye` "busy", and
+  the phone says the TV is showing another device. With "Let another phone take over"
+  on in the TV's settings (off by default), a paired phone that starts mirroring
+  replaces the one on screen instead, which gets `bye` "replaced" and says another
+  device took over. A phone that still has to pair gets "busy" either way, because
+  pairing needs the TV's screen. The TV ends a session after 10 seconds without data.
+  A phone that comes back sooner (same `sender_id`) replaces its old connection right
+  away, and the last picture stays on screen until the new one arrives. A phone coming
+  back (`reconnect`) never takes over from another one: otherwise a phone back from a
+  Wi-Fi hiccup would push out the phone that took over meanwhile. It gets "replaced"
+  instead, and any "no" from the TV while reconnecting ends the session on the phone.
 - **Wi-Fi:** while a phone is connected, the TV holds a Wi-Fi lock (low-latency mode
   from Android 10, high-performance mode before), so its Wi-Fi stays out of power
   saving, where the access point holds frames back and delivers them in bunches.
@@ -343,7 +350,9 @@ milliseconds.
   Wi-Fi; `--hiccup=0` gives the burst a reconnecting phone causes. `--low-latency`
   asks for the low-latency mode, and a low frame rate (`2` for the fps) shows whether
   the TV's decoder holds pictures back: the overlay's decode time then jumps to 500 ms
-  or more.
+  or more. Every run is the same sender; `--sender=<name>` connects as another one,
+  like a second phone, and `--reconnect` as one coming back after a lost connection,
+  for trying the busy handling.
 - Weak Wi-Fi: debug builds of the TV app read the phone's stream no faster than
   `adb shell am start -n io.github.lumpilabs.beamline.receiver/.MainActivity --ei
   debug_read_kbps 3000` allows (kbit/s; 0 is full speed again), keeping a small

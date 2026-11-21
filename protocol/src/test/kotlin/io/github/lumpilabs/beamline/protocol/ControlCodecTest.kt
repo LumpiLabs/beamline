@@ -18,6 +18,7 @@ class ControlCodecTest {
       Hello(listOf(1), "Pixel 8", listOf(Codecs.H264), listOf(Codecs.OPUS), "6f1c2a"),
       Hello(listOf(1), "Pixel 8", listOf(Codecs.H264), listOf(Codecs.OPUS), "6f1c2a", pair = true),
       Hello(listOf(1), "Pixel 8", listOf(Codecs.H264), listOf(Codecs.OPUS), "6f1c2a", lowLatency = true),
+      Hello(listOf(1), "Pixel 8", listOf(Codecs.H264), listOf(Codecs.OPUS), "6f1c2a", reconnect = true),
       Pairing(receiverConfirms = true),
       Pairing(receiverConfirms = false),
       Welcome(1, "Living room TV", 1920, 1080, 60),

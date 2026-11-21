@@ -37,6 +37,12 @@ data class Hello(
    * instead of a few hundred milliseconds behind for smooth playback.
    */
   @SerialName("low_latency") val lowLatency: Boolean = false,
+  /**
+   * The sender lost its connection and is coming back on its own. It takes its own place back,
+   * but never another sender's: a receiver that lets senders take over turns it away with `bye`
+   * "replaced" instead.
+   */
+  val reconnect: Boolean = false,
 ) : Control
 
 /**
