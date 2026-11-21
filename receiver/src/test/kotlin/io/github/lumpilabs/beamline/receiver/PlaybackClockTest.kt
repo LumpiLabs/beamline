@@ -21,6 +21,15 @@ class PlaybackClockTest {
   }
 
   @Test
+  fun lowLatencyFollowsTheFastestDeliveryClosely() {
+    val clock = PlaybackClock { 5_000_000_000 }
+    clock.lowLatency = true
+    clock.onVideoArrival(ptsUs = 1_000_000, arrivalNs = 1_050_000_000) // 50 ms in transit
+    clock.onVideoArrival(ptsUs = 1_040_000, arrivalNs = 1_070_000_000) // 30 ms in transit
+    assertEquals(1_080_000_000L + 30_000_000 + 60_000_000, clock.schedule(1_080_000), "not waiting for the sound")
+  }
+
+  @Test
   fun nothingToGoByMeansShowAtOnce() {
     assertEquals(null, PlaybackClock { null }.schedule(1_000_000))
   }

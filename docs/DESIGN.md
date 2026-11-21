@@ -82,8 +82,9 @@ control messages.
 CBOR two-element arrays of the form `["<name>", {...}]`, the body a map with snake_case
 field names; unknown fields are ignored and unknown message names are skipped, so newer
 peers can add both. Messages: `hello` (versions, device name, capabilities, a
-`sender_id` that stays the same for one install of the sender app, and `pair` when the
-sender doesn't know the receiver yet), `pairing` and `pairing_confirm` (see below),
+`sender_id` that stays the same for one install of the sender app, `pair` when the
+sender doesn't know the receiver yet, and `low_latency` for presenting and games, see
+Delay), `pairing` and `pairing_confirm` (see below),
 `welcome` (chosen version, stream limits, and the audio and video codecs the receiver
 plays; a receiver that lists no video codecs takes H.264), `stream` (codec, width, height, fps,
 rotation, sent before each new video config), `request_keyframe`, `bitrate_hint`,
@@ -212,6 +213,17 @@ pair again.
   (`releaseOutputBuffer` with a timestamp). Display times follow the sound's clock, and
   are smoothed into an even cadence, because a phone composing 25 fps video on a
   120 Hz screen delivers frames alternately 33 and 42 ms apart.
+- **Decoding without holding back:** the Fire TV Stick 4K Max's MediaTek decoder hands a
+  picture out only once one or two more have gone in, in case one has to be shown
+  before the other: 40 to 80 ms at 25 fps, and on a still screen the last change never
+  shows. Two things stop that, and only together: Fire OS's own low-latency switch (the
+  format key `vdec-lowlatency`, found in its `libstagefright`, which turns on
+  `OMX.amazon.fireos.index.video.lowLatencyDecode`; Android 11 calls it
+  `KEY_LOW_LATENCY`), and an H.264 SPS whose VUI bitstream restriction says that
+  pictures are never reordered (`max_num_reorder_frames` 0, `max_dec_frame_buffering`
+  as small as the reference pictures allow). The Galaxy's encoder writes that; others
+  don't, so the TV rewrites every SPS it gets that lacks it. Decoding a frame then takes
+  5 to 10 ms instead of 40 to 85.
 - **Catching up:** a frame that comes out of the decoder more than 40 ms late is
   skipped, never two in a row. Content at the screen's own rate (60 fps on 60 Hz) can't
   otherwise catch up after a stall, such as the TV app opening while frames already
@@ -279,14 +291,29 @@ pair again.
 
 ## Delay
 
-Smooth playback comes first: the TV plays about a third of a second behind the phone,
-which hides Wi-Fi hiccups of that length without a stutter. Picture and sound stay in
-sync with each other; only the phone itself is ahead. On a Wi-Fi too slow for the
-stream, the phone lowers the bitrate and skips video rather than letting the delay
-grow (see Weak Wi-Fi under Sender).
+Smooth playback comes first: the TV keeps about a third of a second of sound queued,
+which hides Wi-Fi hiccups of that length without a stutter, and shows each picture with
+its sound. The Fire TV Stick 4K Max's own sound output adds about a quarter of a second
+more: with a Galaxy S26+, the picture was 568 ms behind the phone, with 332 ms of sound
+queued. Picture and sound stay in sync with each other; only the phone itself is ahead.
+On a Wi-Fi too slow for the stream, the phone lowers the bitrate and skips video rather
+than letting the delay grow (see Weak Wi-Fi under Sender).
 
-Planned for M3: an optional low-latency mode for presenting and games, under 150 ms
-from phone screen to TV screen on 5 GHz Wi-Fi, with a small buffer.
+**Low latency**, for presenting and games, is a switch in the phone app. It goes to the
+TV in `hello` (`low_latency`), so it applies from the next start. Then:
+
+- The TV shows each picture 60 ms after the fastest delivery of the last few seconds,
+  with or without sound: enough to decode it, with a little to spare for frames that
+  take longer. A later frame is shown as soon as it is decoded, or skipped when far
+  behind (see Catching up).
+- The sound gets an 80 ms cushion instead of 300 ms, and the picture doesn't wait for
+  it, so the sound trails the picture by the TV's own sound output.
+- The phone sends H.264, which the TV decodes without holding pictures back (see
+  Decoding without holding back), and skips waiting video once it is 100 ms old
+  instead of 250.
+
+From the PC test sender (no capture or encoding, no sound), the picture is 63 to 65 ms
+behind the sender in this mode at 25 and 60 fps, against 256 ms without it.
 
 ## Known limits
 
@@ -310,7 +337,10 @@ from phone screen to TV screen on 5 GHz Wi-Fi, with a small buffer.
 - `tools/test-sender` streams a test pattern, optionally with sound from an Ogg Opus
   file, to the TV from a PC, so the TV app can be checked without a phone. With
   `--hiccup=<second>` it stalls for a second and then sends everything at once, like
-  Wi-Fi; `--hiccup=0` gives the burst a reconnecting phone causes.
+  Wi-Fi; `--hiccup=0` gives the burst a reconnecting phone causes. `--low-latency`
+  asks for the low-latency mode, and a low frame rate (`2` for the fps) shows whether
+  the TV's decoder holds pictures back: the overlay's decode time then jumps to 500 ms
+  or more.
 - Weak Wi-Fi: debug builds of the TV app read the phone's stream no faster than
   `adb shell am start -n io.github.lumpilabs.beamline.receiver/.MainActivity --ei
   debug_read_kbps 3000` allows (kbit/s; 0 is full speed again), keeping a small

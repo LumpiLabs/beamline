@@ -32,6 +32,11 @@ data class Hello(
    * pairing code before it sends anything.
    */
   val pair: Boolean = false,
+  /**
+   * For presenting and games: show the picture as soon as the network and the decoder allow,
+   * instead of a few hundred milliseconds behind for smooth playback.
+   */
+  @SerialName("low_latency") val lowLatency: Boolean = false,
 ) : Control
 
 /**

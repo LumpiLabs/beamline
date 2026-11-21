@@ -33,7 +33,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.thread
 import kotlin.system.exitProcess
 
-private const val USAGE = "Usage: test-sender <host> [port] [seconds] [fps] [sound.ogg] [--hiccup=<second>]"
+private const val USAGE = "Usage: test-sender <host> [port] [seconds] [fps] [sound.ogg] [--hiccup=<second>] [--low-latency]"
 private const val SENDER_ID = "beamline-test-sender"
 private const val HICCUP_MS = 1_000L
 
@@ -41,9 +41,10 @@ private const val HICCUP_MS = 1_000L
  * Streams a test pattern to a Beamline TV, for testing the TV app without a phone. An Ogg Opus
  * file, for example from `ffmpeg -f lavfi -i sine=frequency=440:duration=5 -ac 2 -c:a libopus
  * tone.ogg`, is sent as sound in a loop. `--hiccup=<second>` holds everything back for a second at
- * that point and then sends it at once, like Wi-Fi that stalls for a moment.
+ * that point and then sends it at once, like Wi-Fi that stalls for a moment. `--low-latency` asks
+ * the TV for its low-latency mode, as the phone app's switch does.
  *
- * Usage: `test-sender <host> [port] [seconds] [fps] [sound.ogg] [--hiccup=<second>]`
+ * Usage: `test-sender <host> [port] [seconds] [fps] [sound.ogg] [--hiccup=<second>] [--low-latency]`
  */
 fun main(args: Array<String>) {
   val positional = args.filterNot { it.startsWith("--") }
@@ -76,7 +77,14 @@ fun main(args: Array<String>) {
 
     val audioCodecs = if (sound != null) listOf(Codecs.OPUS) else emptyList()
     // A fixed sender id: a second run replaces the first one on the TV, like a reconnecting phone.
-    val hello = Hello(listOf(Protocol.VERSION), "Beamline test sender", listOf(Codecs.H264), audioCodecs, SENDER_ID)
+    val hello = Hello(
+      listOf(Protocol.VERSION),
+      "Beamline test sender",
+      listOf(Codecs.H264),
+      audioCodecs,
+      SENDER_ID,
+      lowLatency = "--low-latency" in args,
+    )
     writer.write(ControlCodec.toFrame(hello))
     var reply = reader.read()?.let { ControlCodec.decode(it.body) }
     if (reply is Pairing) {

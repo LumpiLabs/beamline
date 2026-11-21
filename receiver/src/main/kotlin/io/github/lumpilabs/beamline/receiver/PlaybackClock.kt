@@ -10,6 +10,9 @@ import kotlin.math.abs
  *   The sound itself sits in a buffer of a few hundred milliseconds, which absorbs Wi-Fi bursts.
  * - Without sound, frames appear [VIDEO_ONLY_DELAY_NS] after the fastest delivery of the last few
  *   seconds.
+ * - In [lowLatency] mode, for presenting and games, frames appear [LOW_LATENCY_DELAY_NS] after the
+ *   fastest delivery, with or without sound: enough to decode them, little to spare for Wi-Fi
+ *   hiccups. The sound then trails the picture by its own, shorter cushion.
  * - Frames are spaced evenly: phones compose at 60 to 120 Hz, so 25 fps video arrives with uneven
  *   gaps (33 and 42 ms). The schedule follows the average spacing and only slowly corrects
  *   towards the exact timestamps.
@@ -22,6 +25,9 @@ class PlaybackClock(private val audioOffsetNs: () -> Long?) {
   private var lastPtsUs: Long? = null
   private var lastRenderNs: Long? = null
   private var intervalNs: Double? = null
+
+  /** Set from the sender's hello, before the first frame. */
+  @Volatile var lowLatency = false
 
   @Synchronized
   fun onVideoArrival(ptsUs: Long, arrivalNs: Long = System.nanoTime()) {
@@ -46,9 +52,12 @@ class PlaybackClock(private val audioOffsetNs: () -> Long?) {
    */
   @Synchronized
   fun schedule(ptsUs: Long): Long? {
-    val offset = audioOffsetNs()
-      ?: windows.minOfOrNull { it.minTransitNs }?.plus(VIDEO_ONLY_DELAY_NS)
-      ?: return null
+    val fastestNs = windows.minOfOrNull { it.minTransitNs }
+    val offset = if (lowLatency) {
+      fastestNs?.plus(LOW_LATENCY_DELAY_NS)
+    } else {
+      audioOffsetNs() ?: fastestNs?.plus(VIDEO_ONLY_DELAY_NS)
+    } ?: return null
     val ideal = ptsUs * 1000 + offset
     val previousPts = lastPtsUs
     val previousRender = lastRenderNs
@@ -74,6 +83,12 @@ class PlaybackClock(private val audioOffsetNs: () -> Long?) {
 
   private companion object {
     const val VIDEO_ONLY_DELAY_NS = 250_000_000L
+
+    /**
+     * Decoding takes 5 to 10 ms on the Fire TV Stick 4K Max; the rest is for frames arriving
+     * slower than the fastest, which on 5 GHz Wi-Fi are rarely more than 50 ms behind it.
+     */
+    const val LOW_LATENCY_DELAY_NS = 60_000_000L
     const val WINDOW_NS = 500_000_000L
 
     /** Three seconds of history: long enough to see the fast deliveries, short enough to follow drift. */

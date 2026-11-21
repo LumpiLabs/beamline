@@ -62,6 +62,7 @@ class MainActivity : ComponentActivity() {
   private var soundAllowed by mutableStateOf(true)
   private var keepAwake by mutableStateOf(true)
   private var hevc by mutableStateOf(false)
+  private var lowLatency by mutableStateOf(false)
 
   private val requestPermissions =
     registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
@@ -76,6 +77,7 @@ class MainActivity : ComponentActivity() {
     tileAdded = SenderPrefs.isTileAdded(this)
     keepAwake = SenderPrefs.keepAwake(this)
     hevc = SenderPrefs.hevc(this)
+    lowLatency = SenderPrefs.lowLatency(this)
     setContent {
       BeamlineTheme {
         val status by MirrorState.status.collectAsState()
@@ -87,12 +89,14 @@ class MainActivity : ComponentActivity() {
           soundAllowed = soundAllowed,
           keepAwake = keepAwake,
           hevc = hevc,
+          lowLatency = lowLatency,
           onConnect = { startActivity(CaptureActivity.intent(this, it)) },
           onStop = { MirrorService.stop(this) },
           onPairingAnswer = { MirrorService.answerPairing(this, it) },
           onAddTile = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !tileAdded) ::requestAddTile else null,
           onKeepAwakeChange = ::changeKeepAwake,
           onHevcChange = ::changeHevc,
+          onLowLatencyChange = ::changeLowLatency,
         )
       }
     }
@@ -108,6 +112,12 @@ class MainActivity : ComponentActivity() {
   private fun changeHevc(enabled: Boolean) {
     SenderPrefs.setHevc(this, enabled)
     hevc = enabled
+  }
+
+  /** Applies from the next session: both ends set themselves up for it when connecting. */
+  private fun changeLowLatency(enabled: Boolean) {
+    SenderPrefs.setLowLatency(this, enabled)
+    lowLatency = enabled
   }
 
   /** Asks Android to put the Beamline tile into Quick Settings (Android 13 and newer). */
@@ -182,12 +192,14 @@ fun SenderScreen(
   soundAllowed: Boolean,
   keepAwake: Boolean,
   hevc: Boolean,
+  lowLatency: Boolean,
   onConnect: (ReceiverAddress) -> Unit,
   onStop: () -> Unit,
   onPairingAnswer: (Boolean) -> Unit,
   onAddTile: (() -> Unit)?,
   onKeepAwakeChange: (Boolean) -> Unit,
   onHevcChange: (Boolean) -> Unit,
+  onLowLatencyChange: (Boolean) -> Unit,
 ) {
   Scaffold { padding ->
     LazyColumn(
@@ -207,6 +219,7 @@ fun SenderScreen(
       }
       item { SwitchSetting(R.string.keep_awake, R.string.keep_awake_explanation, keepAwake, onKeepAwakeChange) }
       item { SwitchSetting(R.string.hevc, R.string.hevc_explanation, hevc, onHevcChange) }
+      item { SwitchSetting(R.string.low_latency, R.string.low_latency_explanation, lowLatency, onLowLatencyChange) }
       if (!localNetworkAllowed) {
         item { Text(stringResource(R.string.local_network_needed), style = MaterialTheme.typography.bodyMedium) }
       }
@@ -355,12 +368,14 @@ private fun SenderScreenPreview() {
       soundAllowed = true,
       keepAwake = true,
       hevc = false,
+      lowLatency = false,
       onConnect = {},
       onStop = {},
       onPairingAnswer = {},
       onAddTile = {},
       onKeepAwakeChange = {},
       onHevcChange = {},
+      onLowLatencyChange = {},
     )
   }
 }

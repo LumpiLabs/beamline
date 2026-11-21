@@ -1,12 +1,13 @@
 package io.github.lumpilabs.beamline.receiver
 
 /**
- * How long before its time a frame goes into the decoder. Decoders differ a lot: on the Fire TV
- * Stick 4K Max at 2336 x 1072, H.264 takes about 40 ms and HEVC about 85 ms. A fixed 60 ms made
- * every HEVC frame late, so the lead follows the measured decode times: slower frames pull it up
- * quickly, faster ones let it down slowly. A single slow frame only moves it part of the way,
- * because a lead well above the usual decode time makes the decoder hold finished frames, and it
- * has only a few output buffers.
+ * How long before its time a frame goes into the decoder. Decoders differ a lot: the Fire TV Stick
+ * 4K Max at 2336 x 1072 took about 40 ms for H.264 and 85 ms for HEVC while it still held frames
+ * back (see [VideoDecoder]'s low-latency settings); H.264 now takes 5 to 10 ms. A fixed 60 ms
+ * made every HEVC frame late back then, so the lead follows the measured decode times: slower
+ * frames pull it up quickly, faster ones let it down slowly. A single slow frame only moves it
+ * part of the way, because a lead well above the usual decode time makes the decoder hold
+ * finished frames, and it has only a few output buffers.
  *
  * Used on the decoder's thread only.
  */
