@@ -20,8 +20,11 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v6
 
+      - name: Install MinGW-w64 for the Windows sender's capture library
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends g++-mingw-w64-x86-64
+
       - name: Build, test and lint
-        run: ./gradlew --console=plain build
+        run: ./gradlew --console=plain build -Pbeamline.native=required
 
       - name: Upload debug APKs
         uses: actions/upload-artifact@v7
@@ -30,4 +33,11 @@ jobs:
           path: |
             sender/build/outputs/apk/debug/*.apk
             receiver/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+      - name: Upload the Windows sender
+        uses: actions/upload-artifact@v7
+        with:
+          name: beamline-windows
+          path: windows-sender/build/distributions/beamline.zip
           if-no-files-found: error
