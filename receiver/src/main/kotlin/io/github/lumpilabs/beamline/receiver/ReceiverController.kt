@@ -63,6 +63,10 @@ class ReceiverController(
   private val _showStats = MutableStateFlow(ReceiverPrefs.showStats(context))
   val showStats: StateFlow<Boolean> = _showStats
 
+  /** Whether a paired phone may take over from the one on screen, see [MirrorServer.Events.allowsTakeOver]. */
+  private val _allowTakeOver = MutableStateFlow(ReceiverPrefs.allowTakeOver(context))
+  val allowTakeOver: StateFlow<Boolean> = _allowTakeOver
+
   /** The phones paired with this TV, for the settings; the one used last first. */
   private val _pairedSenders = MutableStateFlow(ReceiverPrefs.pairedSenders(context))
   val pairedSenders: StateFlow<List<PairedSender>> = _pairedSenders
@@ -141,6 +145,10 @@ class ReceiverController(
     ReceiverPrefs.setShowStats(context, _showStats.updateAndGet { !it })
   }
 
+  fun toggleTakeOver() {
+    ReceiverPrefs.setAllowTakeOver(context, _allowTakeOver.updateAndGet { !it })
+  }
+
   /** OK (true) or Back (false) on the remote while a pairing waits for the TV's user. */
   fun answerPairing(allowed: Boolean) {
     pendingPairing?.complete(allowed)
@@ -164,6 +172,8 @@ class ReceiverController(
    * it's closed: connecting opens it for them.
    */
   override fun refusal(pairing: Boolean): String? = ByeReasons.OPEN_APP.takeIf { pairing && !isScreenShown }
+
+  override fun allowsTakeOver(): Boolean = _allowTakeOver.value
 
   override fun askPairing(senderName: String, code: String, mustAllow: Boolean): CompletableFuture<Boolean> {
     val answer = CompletableFuture<Boolean>()

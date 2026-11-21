@@ -33,7 +33,8 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.thread
 import kotlin.system.exitProcess
 
-private const val USAGE = "Usage: test-sender <host> [port] [seconds] [fps] [sound.ogg] [--hiccup=<second>] [--low-latency]"
+private const val USAGE =
+  "Usage: test-sender <host> [port] [seconds] [fps] [sound.ogg] [--hiccup=<second>] [--low-latency] [--sender=<name>] [--reconnect]"
 private const val SENDER_ID = "beamline-test-sender"
 private const val HICCUP_MS = 1_000L
 
@@ -44,7 +45,12 @@ private const val HICCUP_MS = 1_000L
  * that point and then sends it at once, like Wi-Fi that stalls for a moment. `--low-latency` asks
  * the TV for its low-latency mode, as the phone app's switch does.
  *
- * Usage: `test-sender <host> [port] [seconds] [fps] [sound.ogg] [--hiccup=<second>] [--low-latency]`
+ * Every run is the same sender, so a second run replaces the first one on the TV, like a phone
+ * reconnecting. `--sender=<name>` connects as another sender, like a second phone, for trying what
+ * the TV does when it is busy. `--reconnect` says it is coming back after a lost connection.
+ *
+ * Usage: `test-sender <host> [port] [seconds] [fps] [sound.ogg] [--hiccup=<second>] [--low-latency]
+ * [--sender=<name>] [--reconnect]`
  */
 fun main(args: Array<String>) {
   val positional = args.filterNot { it.startsWith("--") }
@@ -57,6 +63,7 @@ fun main(args: Array<String>) {
   val fps = positional.getOrNull(3)?.toInt() ?: 30
   val sound = positional.getOrNull(4)?.let { OggOpus.read(File(it)) }
   val hiccupAt = args.firstOrNull { it.startsWith("--hiccup=") }?.substringAfter('=')?.toInt()
+  val otherSender = args.firstOrNull { it.startsWith("--sender=") }?.substringAfter('=')
   val size = VideoSize(1280, 720)
 
   print("Encoding test pattern... ")
@@ -76,14 +83,14 @@ fun main(args: Array<String>) {
     val reader = FrameReader(socket.getInputStream())
 
     val audioCodecs = if (sound != null) listOf(Codecs.OPUS) else emptyList()
-    // A fixed sender id: a second run replaces the first one on the TV, like a reconnecting phone.
     val hello = Hello(
       listOf(Protocol.VERSION),
-      "Beamline test sender",
+      otherSender?.let { "Test sender $it" } ?: "Beamline test sender",
       listOf(Codecs.H264),
       audioCodecs,
-      SENDER_ID,
+      otherSender?.let { "$SENDER_ID-$it" } ?: SENDER_ID,
       lowLatency = "--low-latency" in args,
+      reconnect = "--reconnect" in args,
     )
     writer.write(ControlCodec.toFrame(hello))
     var reply = reader.read()?.let { ControlCodec.decode(it.body) }

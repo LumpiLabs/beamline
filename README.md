@@ -76,7 +76,7 @@ ffmpeg -f lavfi -i sine=frequency=440:duration=5 -af volume=0.1 -ac 2 -c:a libop
 ./gradlew :test-sender:run --args="192.168.1.50 47800 30 25 $PWD/tone.ogg"
 ```
 
-Add `--hiccup=10` to hold everything back for one second at second 10 and then send it at once, like Wi-Fi that stalls for a moment.
+Add `--hiccup=10` to hold everything back for one second at second 10 and then send it at once, like Wi-Fi that stalls for a moment. Add `--sender=2` to connect as a second phone, for trying what the TV does when it's busy.
 
 The first run pairs with the TV: the test sender prints the code and takes it as
 matching, and the TV asks you to press OK on the remote. It keeps its key in

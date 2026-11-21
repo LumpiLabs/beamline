@@ -25,6 +25,8 @@
   <string name="settings_fill_summary">Bilder im Querformat füllen den Bildschirm, die Ränder werden abgeschnitten. Aus: das ganze Bild mit schwarzen Balken. Beim Spiegeln wechselt OK.</string>
   <string name="settings_stats">Statistik anzeigen</string>
   <string name="settings_stats_summary">Beim Spiegeln oben links. Menü schaltet sie auch um.</string>
+  <string name="settings_take_over">Anderes Handy darf übernehmen</string>
+  <string name="settings_take_over_summary">Ein gekoppeltes Handy, das die Spiegelung startet, löst das gezeigte ab. Aus: Es erfährt, dass der Fernseher belegt ist. Ein Handy, das erst koppeln muss, wartet, bis der Fernseher frei ist.</string>
   <string name="settings_paired">Gekoppelte Handys</string>
   <string name="settings_paired_none">Noch kein Handy gekoppelt.</string>
   <string name="settings_paired_last_used">Zuletzt verbunden: %1$s</string>

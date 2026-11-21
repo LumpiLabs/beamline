@@ -9,6 +9,7 @@ object ReceiverPrefs {
   private const val FILE = "beamline"
   private const val FILL = "fill"
   private const val SHOW_STATS = "show_stats"
+  private const val TAKE_OVER = "take_over"
 
   /** One entry per paired phone, keyed by its certificate fingerprint, see [PairedSender.encode]. */
   private const val PAIRED_FILE = "paired_senders"
@@ -20,6 +21,11 @@ object ReceiverPrefs {
   fun showStats(context: Context): Boolean = prefs(context).getBoolean(SHOW_STATS, false)
 
   fun setShowStats(context: Context, show: Boolean) = prefs(context).edit { putBoolean(SHOW_STATS, show) }
+
+  /** A paired phone that starts mirroring replaces the one on screen, instead of hearing "busy". */
+  fun allowTakeOver(context: Context): Boolean = prefs(context).getBoolean(TAKE_OVER, false)
+
+  fun setAllowTakeOver(context: Context, allow: Boolean) = prefs(context).edit { putBoolean(TAKE_OVER, allow) }
 
   /** The phones paired with this TV, the one used last first. */
   fun pairedSenders(context: Context): List<PairedSender> =

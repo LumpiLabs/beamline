@@ -20,7 +20,8 @@ Notable changes to Beamline. There is no release yet; see the
 - Optional low latency for presenting and games: the TV shows the picture about a
   tenth of a second behind the phone instead of over half a second, with sound
   trailing a little.
-- Clear messages when the TV can't be reached, is busy, or was closed.
+- Clear messages when the TV can't be reached, is busy, was closed, or another phone
+  took over.
 
 ### TV app
 
@@ -34,7 +35,8 @@ Notable changes to Beamline. There is no release yet; see the
 - Menu shows statistics: frame rate, delay behind the phone, Wi-Fi jitter, late and
   dropped frames, decode time and sound gaps.
 - Settings, opened with OK while no phone is connected: fill the screen, statistics,
-  and the paired phones with when each last connected, each of which can be forgotten.
+  letting another phone take over instead of hearing that the TV is busy, and the
+  paired phones with when each last connected, each of which can be forgotten.
 - On Fire TV, a phone that has mirrored once can open the app by connecting, also after
   the TV restarts.
 

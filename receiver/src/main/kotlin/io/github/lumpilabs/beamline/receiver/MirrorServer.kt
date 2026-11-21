@@ -46,8 +46,8 @@ import kotlin.concurrent.thread
 /**
  * Accepts one sender at a time over TLS, as [identity], and plays its video on the surface from
  * [videoSurface]. A sender the TV doesn't know yet pairs first (see [Session.pair]). A second
- * sender gets a `bye` with reason "busy", unless it is the same sender reconnecting after losing
- * its connection: then the new connection replaces the old one.
+ * sender gets a `bye` with reason "busy", or takes over where the TV's user allows it; see
+ * [Admission]. The same sender reconnecting after losing its connection replaces its old one.
  */
 class MirrorServer(
   private val tvName: String,
@@ -61,6 +61,9 @@ class MirrorServer(
 
     /** Null to let a sender in, or the reason for the `bye` that turns it away. [pairing]: it has to pair first. */
     fun refusal(pairing: Boolean): String?
+
+    /** The TV's setting: a paired sender that starts mirroring replaces the one on screen. */
+    fun allowsTakeOver(): Boolean
 
     /**
      * Shows [code] for pairing with [senderName]. The future completes with whether the TV's user
@@ -153,33 +156,51 @@ class MirrorServer(
     }
   }
 
-  /**
-   * Makes [session] the one on screen. A session from the same sender as the active one replaces
-   * it, keeping its statistics; the old one is torn down first so its decoder lets go of the
-   * screen. Returns false when the TV is busy with another sender.
-   */
-  private fun claim(session: Session, senderId: String?): Boolean {
-    val previous = synchronized(lock) {
-      val current = active
-      if (current != null && (senderId == null || current.senderId != senderId)) return false
-      active = session
-      current
-    }
-    if (previous != null) {
-      Log.i(TAG, "The sender reconnected, replacing its old connection")
-      previous.close()
-      previous.awaitEnd()
-      session.stats = previous.stats.also { it.onReconnect() }
-    }
-    return true
+  /** What to do with [hello]'s sender, given who is on screen. Call with [lock] held. */
+  private fun admit(hello: Hello, pairing: Boolean): Admission {
+    val current = active
+    return Admission.decide(
+      onScreen = current != null,
+      sameSender = hello.senderId != null && current?.senderId == hello.senderId,
+      pairing = pairing,
+      reconnecting = hello.reconnect,
+      takeOverAllowed = events.allowsTakeOver(),
+    )
   }
 
-  /** Another sender is on screen, so [senderId] would be turned away; checked before pairing too. */
-  private fun isBusyFor(senderId: String?): Boolean =
-    synchronized(lock) {
-      val current = active
-      current != null && (senderId == null || current.senderId != senderId)
+  /**
+   * Makes [session] the one on screen, unless the returned admission has a refusal. The session it
+   * replaces is torn down first, so its decoder lets go of the screen: the same sender's old
+   * connection just closes, and its statistics carry on; another sender is told "replaced".
+   */
+  private fun claim(session: Session, hello: Hello, pairing: Boolean): Admission {
+    val (admission, previous) = synchronized(lock) {
+      val admission = admit(hello, pairing)
+      if (admission.refusal != null) return admission
+      val previous = active
+      active = session
+      admission to previous
     }
+    when {
+      previous == null -> Unit
+      admission == Admission.RECONNECT -> {
+        Log.i(TAG, "The sender reconnected, replacing its old connection")
+        previous.close()
+        previous.awaitEnd()
+        session.stats = previous.stats.also { it.onReconnect() }
+      }
+      else -> {
+        Log.i(TAG, "${hello.name} takes over the screen")
+        previous.end(ByeReasons.REPLACED)
+        // A stalled connection can hold up the goodbye; the new sender shouldn't wait for it.
+        if (!previous.awaitEnd()) {
+          previous.close()
+          previous.awaitEnd()
+        }
+      }
+    }
+    return admission
+  }
 
   /** Returns true when [session] was still the active one, so its end means the screen goes idle. */
   private fun release(session: Session): Boolean =
@@ -235,18 +256,20 @@ class MirrorServer(
         val fingerprint = Identity.fingerprintOf(senderCertificate)
         val paired = events.isPaired(fingerprint)
         val pairing = !paired || hello.pair
-        val refusal = events.refusal(pairing) ?: ByeReasons.BUSY.takeIf { isBusyFor(hello.senderId) }
+        // Checked before pairing too, so nobody compares codes only to be turned away after.
+        val refusal = events.refusal(pairing) ?: synchronized(lock) { admit(hello, pairing) }.refusal
         if (refusal != null) {
           Log.i(TAG, "Turned ${hello.name} away: $refusal")
           send(Bye(refusal))
           return
         }
         if (pairing && !pair(hello.name, mustAllow = !paired)) return
-        claimed = claim(this, hello.senderId)
-        if (!claimed) {
-          send(Bye(ByeReasons.BUSY))
+        claim(this, hello, pairing).refusal?.let {
+          Log.i(TAG, "Turned ${hello.name} away: $it")
+          send(Bye(it))
           return
         }
+        claimed = true
         send(Welcome(version, tvName, MAX_SIZE.width, MAX_SIZE.height, MAX_FPS, listOf(Codecs.OPUS), videoCodecs))
         events.onConnected(hello.name, fingerprint)
         lowLatency = hello.lowLatency
@@ -289,9 +312,8 @@ class MirrorServer(
       }
     }
 
-    fun awaitEnd() {
-      ended.await(REPLACE_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-    }
+    /** Returns false when the session is still running after [REPLACE_TIMEOUT_MS]. */
+    fun awaitEnd(): Boolean = ended.await(REPLACE_TIMEOUT_MS, TimeUnit.MILLISECONDS)
 
     private fun handshake(): Hello {
       socket.tcpNoDelay = true
@@ -512,7 +534,7 @@ class MirrorServer(
     /** The string end_sender_silent names this time too. */
     private const val STREAM_TIMEOUT_MS = 10_000
 
-    /** How long a reconnecting sender waits for its old session to let go of the screen. */
+    /** How long a new session waits for the one it replaces to let go of the screen. */
     private const val REPLACE_TIMEOUT_MS = 3_000L
     private const val SURFACE_WAIT_MS = 4_000
 

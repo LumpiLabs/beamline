@@ -24,6 +24,7 @@
   <string name="error_capture_denied">Die Bildschirmaufnahme wurde nicht erlaubt.</string>
   <string name="error_unreachable">%1$s ist nicht erreichbar. Ist Beamline auf dem Fernseher offen, und sind beide im selben WLAN?</string>
   <string name="error_tv_busy">%1$s zeigt gerade ein anderes Gerät.</string>
+  <string name="error_tv_replaced">Ein anderes Gerät hat %1$s übernommen.</string>
   <string name="error_tv_declined">%1$s hat die Verbindung abgelehnt: %2$s</string>
   <string name="error_pairing_cancelled">Das Koppeln mit %1$s wurde abgebrochen.</string>
   <string name="error_pairing_declined">Das Koppeln wurde auf %1$s abgelehnt.</string>
