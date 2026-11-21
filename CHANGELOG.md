@@ -23,6 +23,16 @@ Notable changes to Beamline. There is no release yet; see the
 - Clear messages when the TV can't be reached, is busy, was closed, or another phone
   took over.
 
+### Windows app
+
+- Mirrors a whole screen with the computer's sound to the Beamline TV app, encoded by
+  the graphics card (NVIDIA, AMD or Intel), or by Windows itself without one.
+- The same pairing, encryption, reconnecting, weak Wi-Fi handling and low-latency mode
+  as the phone app.
+- Finds the TVs on the network by itself; an address can be typed in too.
+- Keeps mirroring while the computer is locked, showing the last picture, and goes on
+  once it is unlocked.
+
 ### TV app
 
 - Smooth, evenly paced playback with sound in sync; switches the TV to 50 Hz for 25 fps
