@@ -336,7 +336,87 @@ they are Windows COM APIs:
   from Android 10, high-performance mode before), so its Wi-Fi stays out of power
   saving, where the access point holds frames back and delivers them in bunches.
 - **AirPlay (M4):** UxPlay's server runs alongside the Beamline receiver and renders
-  into the same player screen, so an iPad and an Android phone use the same TV app.
+  into the same player screen, so an iPad and an Android phone use the same TV app;
+  see AirPlay.
+
+## AirPlay (M4)
+
+Status: plan, 2026-11-23. M4 comes in steps, each its own pull request:
+
+1. **Mirroring starts:** the TV shows up under Screen Mirroring on a Mac and an iPad,
+   and a session runs until decrypted video reaches the TV app (checked in the log).
+2. **Picture and sound:** the video goes into `VideoDecoder`, the sound (AAC-ELD while
+   mirroring) into `AudioPlayer` through `MediaCodec`, in sync, with the same busy and
+   take-over rules as a Beamline phone (`Admission`).
+3. **PIN:** the first time an Apple device connects, the TV shows a PIN to type on it
+   (UxPlay supports this); afterwards the TV remembers it.
+4. **AirPlay video:** the AirPlay button in a video app sends the video's address, and
+   the TV plays the HLS stream itself with Media3.
+
+### Module `airplay`
+
+An Android library with native code, built with the NDK and the CMake from the Android
+SDK for armeabi-v7a (Fire OS 7 has a 32-bit userland) and arm64-v8a, minSdk 25. Its
+native sources are pinned git submodules, built by our own CMake lists:
+
+| Submodule | Pinned to | License | Used for |
+|---|---|---|---|
+| UxPlay | `master` at 48f5ce4 (2026-11-17) | GPLv3; parts of `lib/` LGPL-2.1, llhttp MIT | The AirPlay protocol: RTSP, pairing, FairPlay, mirror and audio streams. Only `lib/`, without its `dns_sd` and `mdnsd` backends. |
+| BoringSSL | a `main` commit | Apache 2.0 | libcrypto: AES-CTR/CBC/GCM, SHA, HMAC, Ed25519, X25519, BN for SRP. Builds with CMake alone (pre-generated sources), no Perl or Go. |
+| libplist | 2.8.1 | LGPL-2.1 | The binary plists in AirPlay's requests. Its own build uses autotools, so we list its sources in CMake. |
+
+UxPlay's `master` instead of v1.73.7, because it has the iOS 27 fixes since that
+release and FairPlay v2 (#639). The submodules are changed only by moving their pin;
+anything UxPlay needs from us goes in our own sources (the mDNS backend, the JNI glue,
+if needed a small compatibility header for BoringSSL).
+
+### Announcing the TV
+
+The TV announces `_airplay._tcp` (as "<TV name>") and `_raop._tcp` (as
+"<device ID>@<TV name>") through `NsdManager`, as it already does `_beamline._tcp`,
+instead of running a second mDNS responder next to Fire OS's. For this, a small dnssd
+backend of our own implements UxPlay's `dnssd_private_init` and the register calls:
+it builds the same TXT records as UxPlay's backends and hands them, with the port,
+over JNI to Kotlin, which registers them. The device ID AirPlay wants is a MAC address,
+which Android doesn't reveal, so the TV makes up a random, locally administered one on
+first start; it and UxPlay's Ed25519 key are kept in `no_backup` storage, so Apple
+devices keep recognising the TV across restarts but not on another device.
+
+The TV offers H.264 and H.265 (feature bit 42, SupportsScreenMultiCodec): iOS 27
+clients have been seen to send H.265 and fail without it, and the Fire TV Stick 4K
+Max decodes both in hardware. It asks for 1920×1080 at 60 fps to start with.
+
+### Kotlin side
+
+`AirPlayServer` in the `airplay` module starts and stops UxPlay's server (TV name,
+device ID, key directory) and reports through a listener: the services to announce,
+a client connecting and leaving (with its name), video (H.264 or H.265 NAL units,
+Annex B, with UxPlay's timestamp) and sound (format and data). The JNI glue attaches
+UxPlay's threads to the JVM and copies each buffer once. `ReceiverController` runs it
+next to `MirrorServer` with the same name; in step 1 the listener only logs (codec,
+picture size from the SPS, frames and bytes per second, sound format).
+
+### CI
+
+The checkout fetches the submodules, and the workflow installs the pinned NDK and
+CMake (`ndkVersion` in `airplay/build.gradle.kts`) with the SDK's `sdkmanager` before
+the Gradle build.
+
+### Testing
+
+A Mac (macOS 27.0.1) and the iPad mirror through Control Center → Screen Mirroring →
+the TV. Step 1 is done when `adb logcat -s BeamlineAirPlay` shows the parameter sets
+and keyframes of a session, then a steady stream of frames.
+
+### Risks
+
+- [UxPlay #535](https://github.com/FDH2/UxPlay/issues/535): with iOS 27, mirroring is
+  negotiated but the client never opens the data connection. Still open; the
+  maintainer thinks it fixed on `master`. If it shows up here, UxPlay's debug log
+  goes to the issue.
+- UxPlay is written against OpenSSL 3. BoringSSL has all the functions it calls
+  (listed above), but small differences may need the compatibility header.
+- Fire OS's `NsdManager` may refuse some TXT values; if so, step 1 shows it first.
 
 ## Delay
 
