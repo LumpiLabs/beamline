@@ -11,7 +11,7 @@ tracking. In English and German.
 > **Status:** in development, nothing to install yet. A Galaxy S26+ mirrors smoothly
 > with sound to a Fire TV Stick 4K Max, gets softer rather than falling behind on a weak
 > Wi-Fi, and picks up again by itself after a Wi-Fi drop;
-> the Windows app is being tried out, and the Pixel 8 and the iPad (AirPlay) are still to come. See the [design](docs/DESIGN.md) and [roadmap](docs/ROADMAP.md).
+> a Windows laptop mirrors its screen with sound too; the Pixel 8 and the iPad (AirPlay) are still to come. See the [design](docs/DESIGN.md) and [roadmap](docs/ROADMAP.md).
 
 ## How it works
 

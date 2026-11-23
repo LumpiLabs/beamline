@@ -135,6 +135,8 @@ class MirrorSession(
 
   private var mediaStarted = false
 
+  @Volatile private var wifi: WifiStreamingMode? = null
+
   /** One connection to the TV. Frames go out through [queue], on its own thread. */
   private inner class Link(
     val socket: Socket,
@@ -157,6 +159,8 @@ class MirrorSession(
 
   fun start() {
     setStatus(MirrorStatus.Connecting(tvName))
+    wifi = runCatching { WifiStreamingMode.start() }.getOrNull()
+    Log.info(if (wifi != null) "Wi-Fi in media streaming mode" else "Wi-Fi left as it is")
     thread(name = "beamline-link", isDaemon = true) {
       try {
         runLink()
@@ -187,6 +191,7 @@ class MirrorSession(
         runCatching { it.socket.close() }
       }
       runCatching { connecting?.close() }
+      wifi?.close()
       listener.onEnded()
     }
   }

@@ -42,22 +42,24 @@ fun onPath(name: String): Boolean =
 val compileNative = tasks.register<Exec>("compileNative") {
   val source = file("src/main/cpp/beamline-media.cpp")
   val library = nativeOutput.map { it.file("win32-x86-64/beamline-media.dll") }
-  val found = onPath(compilerName)
-  if (!found && nativeRequired) throw GradleException("$compilerName isn't on the PATH; install MinGW-w64")
+  // Copied, so the task's actions don't hold on to the build script (configuration cache).
+  val compiler = compilerName
+  val found = onPath(compiler)
+  if (!found && nativeRequired) throw GradleException("$compiler isn't on the PATH; install MinGW-w64")
   inputs.file(source)
-  inputs.property("compiler", compilerName)
+  inputs.property("compiler", compiler)
   outputs.file(library)
   onlyIf("MinGW-w64 is on the PATH") {
-    if (!found) it.logger.warn("Leaving out the Windows sender's capture library: $compilerName isn't on the PATH")
+    if (!found) it.logger.warn("Leaving out the Windows sender's capture library: $compiler isn't on the PATH")
     found
   }
   doFirst { library.get().asFile.parentFile.mkdirs() }
-  executable = compilerName
+  executable = compiler
   args(
     "-std=c++17", "-O2", "-Wall", "-Wextra", "-shared", "-static", "-s",
     "-o", library.get().asFile.absolutePath,
     source.absolutePath,
-    "-ld3d11", "-ldxgi", "-lmfplat", "-lmfuuid", "-lole32", "-loleaut32", "-luuid",
+    "-ld3d11", "-ldxgi", "-lmfplat", "-lmfuuid", "-lole32", "-loleaut32", "-luuid", "-lwlanapi",
   )
 }
 

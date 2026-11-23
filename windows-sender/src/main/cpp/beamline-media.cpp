@@ -26,6 +26,7 @@
 #include <mftransform.h>
 #include <mmdeviceapi.h>
 #include <strmif.h>
+#include <wlanapi.h>
 
 #include <algorithm>
 #include <atomic>
@@ -1375,6 +1376,35 @@ BM_API const char* bm_audio_error(void* handle) {
   lastError = a.error;
   return lastError.c_str();
 }
+
+// Puts the connected Wi-Fi adapters in media streaming mode, which keeps them out of power saving
+// while sending, as the TV's Wi-Fi lock does there. Windows undoes it when the handle is closed by
+// bm_wifi_streaming_stop or when the process ends. Returns null without Wi-Fi.
+BM_API void* bm_wifi_streaming_start() {
+  DWORD version = 0;
+  HANDLE client = nullptr;
+  if (WlanOpenHandle(2, nullptr, &version, &client) != ERROR_SUCCESS) return nullptr;
+  WLAN_INTERFACE_INFO_LIST* list = nullptr;
+  int set = 0;
+  if (WlanEnumInterfaces(client, nullptr, &list) == ERROR_SUCCESS) {
+    for (DWORD i = 0; i < list->dwNumberOfItems; i++) {
+      if (list->InterfaceInfo[i].isState != wlan_interface_state_connected) continue;
+      BOOL on = TRUE;
+      if (WlanSetInterface(client, &list->InterfaceInfo[i].InterfaceGuid, wlan_intf_opcode_media_streaming_mode, sizeof on, &on,
+                           nullptr) == ERROR_SUCCESS) {
+        set++;
+      }
+    }
+    WlanFreeMemory(list);
+  }
+  if (set == 0) {
+    WlanCloseHandle(client, nullptr);
+    return nullptr;
+  }
+  return client;
+}
+
+BM_API void bm_wifi_streaming_stop(void* handle) { WlanCloseHandle(handle, nullptr); }
 
 BM_API void bm_audio_close(void* handle) {
   Audio* a = static_cast<Audio*>(handle);
