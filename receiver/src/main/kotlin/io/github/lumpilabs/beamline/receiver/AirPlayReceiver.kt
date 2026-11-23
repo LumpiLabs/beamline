@@ -7,6 +7,7 @@ import android.util.Log
 import io.github.lumpilabs.beamline.airplay.AirPlayServer
 import java.io.File
 import java.security.SecureRandom
+import java.util.Locale
 
 /**
  * Lets iPads, iPhones and Macs mirror to the TV over AirPlay, next to [MirrorServer] for the phones.
@@ -100,7 +101,7 @@ class AirPlayReceiver(private val context: Context, private val advertiser: Serv
       val elapsed = now - since
       if (elapsed >= INTERVAL_MS) {
         val perSecond = 1000.0 / elapsed
-        Log.i(TAG, "AirPlay $what: %.1f/s, %.0f kbit/s".format(count * perSecond, bytes * 8 * perSecond / 1000))
+        Log.i(TAG, "AirPlay $what: %.1f/s, %.0f kbit/s".format(Locale.ROOT, count * perSecond, bytes * 8 * perSecond / 1000))
         since = now
         count = 0
         bytes = 0

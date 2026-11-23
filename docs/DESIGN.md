@@ -408,6 +408,13 @@ A Mac (macOS 27.0.1) and the iPad mirror through Control Center → Screen Mirro
 the TV. Step 1 is done when `adb logcat -s BeamlineAirPlay` shows the parameter sets
 and keyframes of a session, then a steady stream of frames.
 
+Seen so far with a MacBook Pro on macOS 27.0.1 (AirPlay 980.77.5) and the Fire TV Stick
+4K Max: the Mac lists the TV, mirroring starts, and the TV app gets H.264 at
+1920×1080, a keyframe with its parameter sets first, then 30 to 60 frames per second;
+sound comes as AAC-ELD (480 samples per frame) once something plays. Stopping on the
+Mac ends the session cleanly, and mirroring again right after works. The TV keeps
+UxPlay's key across restarts.
+
 ### Risks
 
 - [UxPlay #535](https://github.com/FDH2/UxPlay/issues/535): with iOS 27, mirroring is
