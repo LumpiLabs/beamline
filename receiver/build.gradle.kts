@@ -38,6 +38,7 @@ kotlin {
 
 dependencies {
   implementation(project(":protocol"))
+  implementation(project(":airplay"))
 
   implementation(platform(libs.androidx.compose.bom))
   implementation(libs.kotlinx.coroutines.android)
