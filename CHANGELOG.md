@@ -22,6 +22,8 @@ Notable changes to Beamline. There is no release yet; see the
   trailing a little.
 - Clear messages when the TV can't be reached, is busy, was closed, or another phone
   took over.
+- The notification says where mirroring stands. The first time with a TV it pops up
+  with the pairing question and both answers, instead of already saying it mirrors.
 
 ### Windows app
 
@@ -54,8 +56,9 @@ Notable changes to Beamline. There is no release yet; see the
 ### Both
 
 - Encrypted connections (TLS 1.2 or newer). The first time a phone and a TV meet, both
-  show a 6-digit code: confirm it on the phone and press OK on the TV. With the app
-  closed, a Fire TV only opens for paired phones.
+  show a 6-digit code: confirm it on the phone and press OK on the TV, in either order;
+  after OK, the TV says when the phone still has to confirm. With the app closed, a
+  Fire TV only opens for paired phones.
 - English and German.
 - `tools/test-sender` streams a test pattern with sound from a PC, for testing the TV
   app without a phone.

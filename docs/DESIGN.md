@@ -131,6 +131,8 @@ The flow, right after the TLS handshake:
    Quick Settings tile). On a yes, or at once when it knows the TV, it sends
    `pairing_confirm`; on a no it sends `bye` "pairing_rejected".
 4. On the TV, OK allows the phone and Back declines it (`bye` "pairing_declined").
+   After OK, the TV asks to confirm the code on the phone while that answer is still
+   open, so its user can tell OK was taken.
 5. With both answers in, the receiver remembers the sender's fingerprint and sends
    `welcome`, and the sender remembers the receiver's. Later connections start without
    a prompt.
@@ -196,7 +198,11 @@ pair again.
   48 kHz stereo PCM, encoded to Opus at 128 kbit/s with 20 ms frames. The phone keeps
   playing its own audio unless the user mutes it.
 - **UI:** a receiver list with manual address entry, and a foreground service (type
-  `mediaProjection`) with a notification that has a Stop action.
+  `mediaProjection`) with a notification that has a Stop action and follows the
+  session: connecting, the pairing question, allowing on the TV, mirroring,
+  reconnecting. It never says it mirrors before it does. The pairing question goes on
+  a channel that pops up, with both answers on the notification itself; a separate
+  notification for it was missed on a Pixel, where Android folded it away.
 - **Keep awake:** once the phone locks, Android stops sending the screen's picture, so
   while mirroring the service keeps the screen on, dimmed, with a screen wake lock
   (`FLAG_KEEP_SCREEN_ON` would need a Beamline window on screen, but the user is in

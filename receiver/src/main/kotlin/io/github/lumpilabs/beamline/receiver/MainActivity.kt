@@ -130,7 +130,7 @@ class MainActivity : ComponentActivity() {
     }
     // While a new phone waits to pair, OK allows it and Back declines it (instead of leaving the app).
     val pairing = controller.state.value as? ReceiverState.Pairing
-    if (pairing?.mustAllow == true && (keyCode in OK_KEYS || keyCode == KeyEvent.KEYCODE_BACK)) {
+    if (pairing?.waitsForOk == true && (keyCode in OK_KEYS || keyCode == KeyEvent.KEYCODE_BACK)) {
       controller.answerPairing(keyCode != KeyEvent.KEYCODE_BACK)
       return true
     }
@@ -409,7 +409,7 @@ private fun PairingScreen(state: ReceiverState.Pairing) {
       color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
     Text(
-      stringResource(if (state.mustAllow) R.string.pairing_allow else R.string.pairing_confirm_on_phone),
+      stringResource(if (state.waitsForOk) R.string.pairing_allow else R.string.pairing_confirm_on_phone),
       style = MaterialTheme.typography.titleMedium,
       color = MaterialTheme.colorScheme.onBackground,
     )
