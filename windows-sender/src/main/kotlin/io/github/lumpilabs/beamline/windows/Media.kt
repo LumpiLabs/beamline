@@ -42,6 +42,10 @@ private interface MediaLibrary : Library {
   fun bm_audio_error(audio: Pointer): String
 
   fun bm_audio_close(audio: Pointer)
+
+  fun bm_wifi_streaming_start(): Pointer?
+
+  fun bm_wifi_streaming_stop(handle: Pointer)
 }
 
 private val native: MediaLibrary by lazy { Native.load("beamline-media", MediaLibrary::class.java) }
@@ -51,6 +55,19 @@ class CaptureException(message: String) : Exception(message)
 /** The clock every timestamp from the capture is on: the performance counter, in nanoseconds. */
 object MediaClock {
   fun nowNs(): Long = native.bm_now_ns()
+}
+
+/**
+ * Keeps the Wi-Fi out of power saving while open, where it would hold frames back and send them in
+ * bunches: Windows' media streaming mode, as the TV holds a Wi-Fi lock. Does nothing without Wi-Fi.
+ */
+class WifiStreamingMode private constructor(private val handle: Pointer) : AutoCloseable {
+  override fun close() = native.bm_wifi_streaming_stop(handle)
+
+  companion object {
+    /** Null without a connected Wi-Fi adapter. */
+    fun start(): WifiStreamingMode? = native.bm_wifi_streaming_start()?.let(::WifiStreamingMode)
+  }
 }
 
 /** A screen of the desktop; [index] 0 is the primary one. */
@@ -122,12 +139,13 @@ class ScreenCapture(screen: Int, val size: VideoSize, val fps: Int, bitrate: Int
       if (!closed) native.bm_video_set_bitrate(handle, bps)
     }
 
-  override fun close() =
+  override fun close() {
     synchronized(lock) {
       if (closed) return
       closed = true
       native.bm_video_close(handle)
     }
+  }
 
   companion object {
     const val SOURCE_CHANGED = -2

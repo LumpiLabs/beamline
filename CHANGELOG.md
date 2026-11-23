@@ -32,6 +32,7 @@ Notable changes to Beamline. There is no release yet; see the
 - Finds the TVs on the network by itself; an address can be typed in too.
 - Keeps mirroring while the computer is locked, showing the last picture, and goes on
   once it is unlocked.
+- Keeps the computer's Wi-Fi out of power saving while mirroring.
 
 ### TV app
 

@@ -231,6 +231,9 @@ they are Windows COM APIs:
   pings use. Windows delivers nothing while nothing plays, so silence fills the gaps
   and the TV's sound clock keeps running. Opus at 128 kbit/s in 20 ms frames, with
   libopus.
+- **Wi-Fi:** while mirroring, the Wi-Fi adapter is in Windows' media streaming mode
+  (`WlanSetInterface`), which keeps it out of power saving, as the TV's Wi-Fi lock does
+  there. Windows undoes it when mirroring stops.
 - **UI:** a small window that lists the TVs found over DNS-SD (with JmDNS, on every
   private IPv4 network, so a VPN such as Tailscale doesn't hide the home network) and
   takes an address by hand, the screens, the low-latency switch, Start and Stop, and
@@ -351,6 +354,9 @@ TV in `hello` (`low_latency`), so it applies from the next start. Then:
 - The phone sends H.264, which the TV decodes without holding pictures back (see
   Decoding without holding back), and skips waiting video once it is 100 ms old
   instead of 250.
+
+From the Windows app on a laptop, the picture is 505 ms behind the laptop with sound,
+and 75 to 85 ms in this mode.
 
 From the PC test sender (no capture or encoding), the picture is 63 to 65 ms behind the
 sender in this mode at 25 and 60 fps, against 256 ms without it and without sound, or
