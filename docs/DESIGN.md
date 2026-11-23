@@ -447,7 +447,10 @@ about a quarter of a second of sound queued and nothing dropped; 25 fps video sw
 the TV to 50 Hz as with phones. The iPad turning to portrait (810×1080) and back shows
 undistorted. The PC test sender connecting while the iPad mirrors hears "busy" and the
 iPad carries on. Home on the remote ends the iPad's mirroring and the server takes the
-next one.
+next one. With "Let another phone take over" on, a paired test sender takes over from
+the iPad (the iPad's connection is dropped and the server listens again within a third
+of a second), and the iPad takes over from the test sender, which hears "replaced" and
+stops instead of reconnecting.
 
 ### Risks
 
