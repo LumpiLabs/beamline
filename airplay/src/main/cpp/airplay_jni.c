@@ -365,7 +365,9 @@ Java_io_github_lumpilabs_beamline_airplay_AirPlayServer_nativeStart(
     if (!server->raop) goto fail;
     raop_set_log_callback(server->raop, log_callback, NULL);
     raop_set_log_level(server->raop, debug ? LOGGER_DEBUG : LOGGER_INFO);
-    if (raop_init2(server->raop, 1, device_id, key_file)) {
+    /* nohold off: while one Apple device mirrors, another gets "409 Conflict" instead of pushing
+       it out; whether a phone may take over is decided in Kotlin (report_client_request). */
+    if (raop_init2(server->raop, 0, device_id, key_file)) {
         /* raop_init2 frees nothing on failure, but leaves raop unusable for raop_destroy */
         free(server->raop);
         server->raop = NULL;

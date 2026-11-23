@@ -53,6 +53,7 @@ class MirrorServer(
   private val tvName: String,
   private val identity: Identity,
   private val videoSurface: () -> Surface?,
+  private val screen: Screen,
   private val events: Events,
 ) {
   interface Events {
@@ -77,8 +78,8 @@ class MirrorServer(
 
     fun rememberPaired(fingerprint: String, senderName: String)
 
-    /** A paired sender is in, with the certificate [fingerprint]. */
-    fun onConnected(senderName: String, fingerprint: String)
+    /** A sender is in: a paired phone with the certificate [fingerprint], or an Apple device without one. */
+    fun onConnected(senderName: String, fingerprint: String?)
 
     fun onVideoSize(size: VideoSize)
 
@@ -116,11 +117,6 @@ class MirrorServer(
     VideoDecoder.supportedCodecs(MAX_SIZE, MAX_FPS).also { Log.i(TAG, "Decodes $it") }
   }
 
-  private val lock = Any()
-
-  /** The session playing on the screen. Guarded by [lock]. */
-  private var active: Session? = null
-
   /** Starts listening on [Protocol.DEFAULT_PORT], or any free port if that one is taken. */
   fun start(): Int {
     val server = Tls.serverSocket(tls).apply { reuseAddress = true }
@@ -140,9 +136,9 @@ class MirrorServer(
     endSession(ByeReasons.APP_CLOSED)
   }
 
-  /** Ends the session on screen, if any, telling the sender [byeReason]. Doesn't block. */
+  /** Ends this server's session on screen, if any, telling the sender [byeReason]. Doesn't block. */
   fun endSession(byeReason: String) {
-    synchronized(lock) { active }?.end(byeReason)
+    (synchronized(screen.lock) { screen.occupant } as? Session)?.end(byeReason)
   }
 
   private fun acceptLoop(server: ServerSocket) {
@@ -156,9 +152,9 @@ class MirrorServer(
     }
   }
 
-  /** What to do with [hello]'s sender, given who is on screen. Call with [lock] held. */
+  /** What to do with [hello]'s sender, given who is on screen. Call with [Screen.lock] held. */
   private fun admit(hello: Hello, pairing: Boolean): Admission {
-    val current = active
+    val current = screen.occupant
     return Admission.decide(
       onScreen = current != null,
       sameSender = hello.senderId != null && current?.senderId == hello.senderId,
@@ -174,16 +170,17 @@ class MirrorServer(
    * connection just closes, and its statistics carry on; another sender is told "replaced".
    */
   private fun claim(session: Session, hello: Hello, pairing: Boolean): Admission {
-    val (admission, previous) = synchronized(lock) {
+    val (admission, previous) = synchronized(screen.lock) {
       val admission = admit(hello, pairing)
       if (admission.refusal != null) return admission
-      val previous = active
-      active = session
+      val previous = screen.occupant
+      screen.occupant = session
       admission to previous
     }
     when {
       previous == null -> Unit
-      admission == Admission.RECONNECT -> {
+      // The same sender id means the same phone, so a session of this server.
+      admission == Admission.RECONNECT && previous is Session -> {
         Log.i(TAG, "The sender reconnected, replacing its old connection")
         previous.close()
         previous.awaitEnd()
@@ -193,24 +190,13 @@ class MirrorServer(
         Log.i(TAG, "${hello.name} takes over the screen")
         previous.end(ByeReasons.REPLACED)
         // A stalled connection can hold up the goodbye; the new sender shouldn't wait for it.
-        if (!previous.awaitEnd()) {
-          previous.close()
-          previous.awaitEnd()
-        }
+        screen.awaitGone(previous)
       }
     }
     return admission
   }
 
-  /** Returns true when [session] was still the active one, so its end means the screen goes idle. */
-  private fun release(session: Session): Boolean =
-    synchronized(lock) {
-      if (active !== session) return false
-      active = null
-      true
-    }
-
-  private inner class Session(private val socket: Socket) : VideoDecoder.Listener {
+  private inner class Session(private val socket: Socket) : VideoDecoder.Listener, Screen.Occupant {
     private lateinit var writer: FrameWriter
     private lateinit var reader: FrameReader
     private var decoder: VideoDecoder? = null
@@ -234,7 +220,7 @@ class MirrorServer(
      */
     @Volatile private var decoderFailed = false
 
-    @Volatile var senderId: String? = null
+    @Volatile override var senderId: String? = null
       private set
 
     /** The DER certificate the sender presented in the TLS handshake. */
@@ -257,7 +243,7 @@ class MirrorServer(
         val paired = events.isPaired(fingerprint)
         val pairing = !paired || hello.pair
         // Checked before pairing too, so nobody compares codes only to be turned away after.
-        val refusal = events.refusal(pairing) ?: synchronized(lock) { admit(hello, pairing) }.refusal
+        val refusal = events.refusal(pairing) ?: synchronized(screen.lock) { admit(hello, pairing) }.refusal
         if (refusal != null) {
           Log.i(TAG, "Turned ${hello.name} away: $refusal")
           send(Bye(refusal))
@@ -291,12 +277,12 @@ class MirrorServer(
         Log.w(TAG, "Session failed", e)
       } finally {
         runCatching { socket.close() }
-        if (claimed && release(this)) events.onDisconnected(reason)
+        if (claimed && screen.release(this)) events.onDisconnected(reason)
         ended.countDown()
       }
     }
 
-    fun close() {
+    override fun close() {
       runCatching { socket.close() }
     }
 
@@ -304,7 +290,7 @@ class MirrorServer(
      * Says bye with [byeReason], so the sender stops instead of reconnecting, and closes. A stalled
      * connection could block the write, so it happens on its own thread.
      */
-    fun end(byeReason: String) {
+    override fun end(byeReason: String) {
       endedByTv = true
       thread(name = "beamline-bye", isDaemon = true) {
         runCatching { send(Bye(byeReason)) }
@@ -313,7 +299,7 @@ class MirrorServer(
     }
 
     /** Returns false when the session is still running after [REPLACE_TIMEOUT_MS]. */
-    fun awaitEnd(): Boolean = ended.await(REPLACE_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+    override fun awaitEnd(): Boolean = ended.await(REPLACE_TIMEOUT_MS, TimeUnit.MILLISECONDS)
 
     private fun handshake(): Hello {
       socket.tcpNoDelay = true

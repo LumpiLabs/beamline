@@ -22,7 +22,8 @@ import kotlin.math.max
 import kotlin.math.min
 
 /**
- * Decodes the sender's Opus audio and plays it. Playback starts once a cushion is queued
+ * Decodes the sender's audio and plays it: Opus from phones and laptops, AAC (AAC-ELD while
+ * mirroring) from Apple devices. Playback starts once a cushion is queued
  * ([START_BUFFER_MS], or [LOW_LATENCY_START_BUFFER_MS] in [lowLatency] mode), which absorbs Wi-Fi
  * bursts; when more than twice that piles up, a chunk is dropped to keep the delay bounded.
  *
@@ -84,7 +85,9 @@ class AudioPlayer(
     private set
 
   init {
-    if (config.codec != Codecs.OPUS) throw ProtocolException("Unsupported audio codec ${config.codec}")
+    if (config.codec != Codecs.OPUS && config.codec != Codecs.AAC) {
+      throw ProtocolException("Unsupported audio codec ${config.codec}")
+    }
     val channelMask = if (config.channels == 1) AudioFormat.CHANNEL_OUT_MONO else AudioFormat.CHANNEL_OUT_STEREO
     val minBuffer = AudioTrack.getMinBufferSize(config.sampleRate, channelMask, AudioFormat.ENCODING_PCM_16BIT)
     // A normal mixer track: low-latency tracks get disabled much sooner when Wi-Fi delays a packet.
@@ -132,7 +135,7 @@ class AudioPlayer(
     if (released) return
     try {
       if (frame.hasFlag(FrameFlags.CODEC_CONFIG)) {
-        startDecoder(OpusConfig.parse(frame.body))
+        startDecoder(frame.body)
         return
       }
       val decoder = codec ?: return
@@ -149,14 +152,22 @@ class AudioPlayer(
     }
   }
 
-  private fun startDecoder(opus: OpusConfig) {
+  /** [codecConfig]: Opus's header and delays, or AAC's AudioSpecificConfig. */
+  private fun startDecoder(codecConfig: ByteArray) {
     codec?.release()
-    val format = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_OPUS, config.sampleRate, config.channels).apply {
-      setByteBuffer("csd-0", ByteBuffer.wrap(opus.header))
-      setByteBuffer("csd-1", nativeLong(opus.codecDelayNs))
-      setByteBuffer("csd-2", nativeLong(opus.seekPreRollNs))
+    codec = null
+    val mime = if (config.codec == Codecs.AAC) MediaFormat.MIMETYPE_AUDIO_AAC else MediaFormat.MIMETYPE_AUDIO_OPUS
+    val format = MediaFormat.createAudioFormat(mime, config.sampleRate, config.channels).apply {
+      if (config.codec == Codecs.AAC) {
+        setByteBuffer("csd-0", ByteBuffer.wrap(codecConfig))
+      } else {
+        val opus = OpusConfig.parse(codecConfig)
+        setByteBuffer("csd-0", ByteBuffer.wrap(opus.header))
+        setByteBuffer("csd-1", nativeLong(opus.codecDelayNs))
+        setByteBuffer("csd-2", nativeLong(opus.seekPreRollNs))
+      }
     }
-    codec = MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_AUDIO_OPUS).apply {
+    codec = MediaCodec.createDecoderByType(mime).apply {
       configure(format, null, null, 0)
       start()
     }

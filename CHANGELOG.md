@@ -38,6 +38,9 @@ Notable changes to Beamline. There is no release yet; see the
 
 ### TV app
 
+- iPads, iPhones and Macs mirror with sound over AirPlay: pick the TV under Screen
+  Mirroring. The same busy and take-over rules apply as for phones.
+- Pictures narrower than 3:2, like an iPad's, are shown whole instead of cropped.
 - Smooth, evenly paced playback with sound in sync; switches the TV to 50 Hz for 25 fps
   video. Frames go to the decoder as early as it needs, measured all the time, and after
   a stall the picture catches up with the sound within seconds.

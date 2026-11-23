@@ -96,8 +96,9 @@ class ReceiverController(
     ?.apply { setReferenceCounted(false) }
 
   private val advertiser = ServiceAdvertiser(context)
+  private val screen = Screen()
   private var server: MirrorServer? = null
-  private val airPlay = AirPlayReceiver(context, advertiser)
+  private val airPlay = AirPlayReceiver(context, advertiser, screen, { surface }, this)
   private var airPlayStarted = false
   private var candidateHz: Float? = null
   private var candidateReports = 0
@@ -107,7 +108,7 @@ class ReceiverController(
 
   fun start() {
     if (server != null) return
-    val newServer = MirrorServer(tvName, identity, { surface }, this)
+    val newServer = MirrorServer(tvName, identity, { surface }, screen, this)
     try {
       val port = newServer.start()
       advertiser.register(tvName, port)
@@ -150,7 +151,7 @@ class ReceiverController(
     isScreenShown = false
     // A pairing nobody can answer any more is declined rather than left to time out.
     answerPairing(false)
-    if (ReceiverService.isSupported) server?.endSession(ByeReasons.APP_CLOSED) else stop()
+    if (ReceiverService.isSupported) screen.end(ByeReasons.APP_CLOSED) else stop()
   }
 
   fun showError(message: String) {
@@ -212,9 +213,11 @@ class ReceiverController(
   }
 
   /** A sender reconnecting after a lost connection keeps its picture on screen until new frames come. */
-  override fun onConnected(senderName: String, fingerprint: String) {
-    ReceiverPrefs.touchPairedSender(context, fingerprint, senderName, System.currentTimeMillis())
-    _pairedSenders.value = ReceiverPrefs.pairedSenders(context)
+  override fun onConnected(senderName: String, fingerprint: String?) {
+    if (fingerprint != null) {
+      ReceiverPrefs.touchPairedSender(context, fingerprint, senderName, System.currentTimeMillis())
+      _pairedSenders.value = ReceiverPrefs.pairedSenders(context)
+    }
     wifiLock?.acquire()
     _state.update {
       if (it is ReceiverState.Connected && it.senderName == senderName) it else ReceiverState.Connected(senderName)
@@ -224,7 +227,7 @@ class ReceiverController(
 
   /** Wakes the TV, also from its screensaver, and opens the TV app to show the picture. */
   private fun bringToFront() {
-    Log.i(TAG, "A known phone connected, opening the TV app")
+    Log.i(TAG, "A known phone or an Apple device connected, opening the TV app")
     // The newer way to wake the screen is an activity flag, but the activity isn't running yet.
     @Suppress("DEPRECATION")
     context.getSystemService(PowerManager::class.java)

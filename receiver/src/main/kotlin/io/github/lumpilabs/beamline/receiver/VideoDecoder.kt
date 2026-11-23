@@ -43,6 +43,12 @@ class VideoDecoder(
 
     /** Called once, on the decoder's thread, when the codec broke; the decoder does nothing more. */
     fun onDecoderError(error: Exception)
+
+    /**
+     * The size of the decoded picture, from the decoder: on the first frame and whenever the
+     * stream changes it in-band, as an iPad does when it turns. On the decoder's thread.
+     */
+    fun onPictureSize(size: VideoSize) = Unit
   }
 
   private val thread = HandlerThread("beamline-decoder").also { it.start() }
@@ -236,7 +242,22 @@ class VideoDecoder(
 
     override fun onError(codec: MediaCodec, e: MediaCodec.CodecException) = fail(e)
 
-    override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) = Unit
+    override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) {
+      if (stopped) return
+      pictureSize(format)?.let(listener::onPictureSize)
+    }
+  }
+
+  /** The visible size: the crop rectangle where the decoder gives one, else the whole buffer. */
+  private fun pictureSize(format: MediaFormat): VideoSize? {
+    fun int(key: String): Int? = if (format.containsKey(key)) format.getInteger(key) else null
+    val left = int(CROP_LEFT)
+    val right = int(CROP_RIGHT)
+    val top = int(CROP_TOP)
+    val bottom = int(CROP_BOTTOM)
+    val width = if (left != null && right != null) right - left + 1 else int(MediaFormat.KEY_WIDTH)
+    val height = if (top != null && bottom != null) bottom - top + 1 else int(MediaFormat.KEY_HEIGHT)
+    return if (width != null && height != null && width > 0 && height > 0) VideoSize(width, height) else null
   }
 
   private class Pending(val frame: Frame, val renderAt: Long?)
@@ -298,5 +319,11 @@ class VideoDecoder(
     private const val SKIP_LATE_NS = 40_000_000L
 
     private const val MAX_DECODING = 256
+
+    // MediaFormat's crop keys, public only from Android 13 (KEY_CROP_LEFT and so on).
+    private const val CROP_LEFT = "crop-left"
+    private const val CROP_RIGHT = "crop-right"
+    private const val CROP_TOP = "crop-top"
+    private const val CROP_BOTTOM = "crop-bottom"
   }
 }

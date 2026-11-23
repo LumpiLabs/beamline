@@ -2,6 +2,7 @@ package io.github.lumpilabs.beamline.airplay
 
 import android.util.Log
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * UxPlay's AirPlay server, for Apple devices mirroring their screen. It announces nothing itself:
@@ -14,7 +15,10 @@ class AirPlayServer(private val listener: Listener) {
    * the listener's to keep.
    */
   interface Listener {
-    /** An Apple device asks to connect; false turns it away. */
+    /**
+     * An Apple device asks to mirror; false turns it away. While one mirrors, another one isn't
+     * asked: it is told the TV is busy.
+     */
     fun onClientRequest(deviceId: String, model: String, name: String): Boolean
 
     /** A connection opened or closed; [open] is how many are open now. */
@@ -23,20 +27,24 @@ class AirPlayServer(private val listener: Listener) {
     /** Mirroring started or stopped sending video. */
     fun onMirroring(running: Boolean)
 
+    /** The connection to the client broke (UxPlay's reason code); the server listens again by itself. */
+    fun onConnectionLost(reason: Int)
+
     /** The client's screen size and codec, before its first video. */
     fun onVideoFormat(h265: Boolean, width: Int, height: Int)
 
     /**
      * Decrypted video: [nalCount] NAL units in Annex B (start codes), parameter sets in front of
-     * keyframes. [ntpLocalNs] is when it is due, on the TV's clock.
+     * keyframes. [senderTimeNs]: when the sender captured it, on the sender's clock (NTP time),
+     * the same clock as the sound's.
      */
-    fun onVideo(nals: ByteArray, h265: Boolean, nalCount: Int, ntpLocalNs: Long)
+    fun onVideo(nals: ByteArray, h265: Boolean, nalCount: Int, senderTimeNs: Long)
 
     /** The sound's format: [compressionType] 8 is AAC-ELD (mirroring), 2 ALAC, 4 AAC-LC; [samplesPerFrame]. */
     fun onAudioFormat(compressionType: Int, samplesPerFrame: Int, usingScreen: Boolean)
 
-    /** One decrypted sound frame. */
-    fun onAudio(frame: ByteArray, compressionType: Int, ntpLocalNs: Long)
+    /** One decrypted sound frame; [senderTimeNs] on the same clock as the video's. */
+    fun onAudio(frame: ByteArray, compressionType: Int, senderTimeNs: Long)
   }
 
   /** A DNS-SD service to announce, with its TXT record. */
@@ -60,7 +68,11 @@ class AirPlayServer(private val listener: Listener) {
 
   private val resets = Executors.newSingleThreadExecutor { Thread(it, "AirPlayReset") }
   @Volatile private var handle = 0L
-  private var openConnections = 0
+  /**
+   * Counted without this object's lock: [restart] and [stop] hold it while UxPlay joins its
+   * threads, and those threads report closing connections on their way out.
+   */
+  private val openConnections = AtomicInteger()
 
   /** Fires when a restart after a lost connection moved the server to another port. */
   var onServicesChanged: ((List<Service>) -> Unit)? = null
@@ -93,6 +105,11 @@ class AirPlayServer(private val listener: Listener) {
       Service(type, name, nativePort(handle, service), TxtRecord.parse(nativeServiceTxt(handle, service)))
     }
 
+  /** Drops the client, if any, so another sender can have the screen. Doesn't block. */
+  fun dropClient() {
+    resets.execute(::restart)
+  }
+
   /** Drops the client and listens again, as UxPlay does after a lost connection. Not on UxPlay's threads. */
   private fun restart() {
     synchronized(this) {
@@ -117,19 +134,18 @@ class AirPlayServer(private val listener: Listener) {
 
   @Suppress("unused")
   private fun onConnectionOpened() {
-    val open = synchronized(this) { ++openConnections }
-    listener.onConnections(open)
+    listener.onConnections(openConnections.incrementAndGet())
   }
 
   @Suppress("unused")
   private fun onConnectionClosed() {
-    val open = synchronized(this) { --openConnections }
-    listener.onConnections(open)
+    listener.onConnections(openConnections.decrementAndGet())
   }
 
   @Suppress("unused")
   private fun onConnectionReset(reason: Int) {
     Log.i(TAG, "Connection reset (reason $reason)")
+    listener.onConnectionLost(reason)
     resets.execute(::restart)
   }
 
@@ -141,7 +157,7 @@ class AirPlayServer(private val listener: Listener) {
 
   @Suppress("unused")
   private fun onVideo(nals: ByteArray, h265: Boolean, nalCount: Int, ntpLocal: Long, ntpRemote: Long) =
-    listener.onVideo(nals, h265, nalCount, ntpLocal)
+    listener.onVideo(nals, h265, nalCount, ntpRemote)
 
   @Suppress("unused")
   private fun onVideoReset(type: Int) {
@@ -153,7 +169,7 @@ class AirPlayServer(private val listener: Listener) {
     listener.onAudioFormat(ct, spf, usingScreen)
 
   @Suppress("unused")
-  private fun onAudio(frame: ByteArray, ct: Int, ntpLocal: Long, ntpRemote: Long) = listener.onAudio(frame, ct, ntpLocal)
+  private fun onAudio(frame: ByteArray, ct: Int, ntpLocal: Long, ntpRemote: Long) = listener.onAudio(frame, ct, ntpRemote)
 
   private external fun nativeStart(
     name: String, deviceId: ByteArray, keyFile: String,
