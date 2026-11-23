@@ -413,7 +413,8 @@ Seen so far with a MacBook Pro on macOS 27.0.1 (AirPlay 980.77.5) and the Fire T
 1920×1080, a keyframe with its parameter sets first, then 30 to 60 frames per second;
 sound comes as AAC-ELD (480 samples per frame) once something plays. Stopping on the
 Mac ends the session cleanly, and mirroring again right after works. The TV keeps
-UxPlay's key across restarts.
+UxPlay's key across restarts. An iPad Pro (iPad13,8, AirPlay 950.7.1) does the same,
+with H.264 at 1442×1080, its 4:3 screen at 1080 lines.
 
 ### Risks
 
