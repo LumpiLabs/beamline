@@ -278,7 +278,7 @@ they are Windows COM APIs:
   TV for a moment.
 - **Fill or fit:** landscape pictures fill the screen by default, cropping the phone's
   black side bars; OK on the remote toggles to showing the whole picture. Portrait
-  pictures are always shown whole. The TV remembers the choice, and whether the
+  pictures, and pictures narrower than 3:2 like an iPad's 4:3, are always shown whole. The TV remembers the choice, and whether the
   statistics are showing, across restarts.
 - **Audio:** Opus decoded with `MediaCodec`, played through a normal mixer `AudioTrack`.
   Playback starts once 300 ms is queued, and a chunk is dropped when more than 600 ms
@@ -393,8 +393,32 @@ device ID, key directory) and reports through a listener: the services to announ
 a client connecting and leaving (with its name), video (H.264 or H.265 NAL units,
 Annex B, with UxPlay's timestamp) and sound (format and data). The JNI glue attaches
 UxPlay's threads to the JVM and copies each buffer once. `ReceiverController` runs it
-next to `MirrorServer` with the same name; in step 1 the listener only logs (codec,
-picture size from the SPS, frames and bytes per second, sound format).
+next to `MirrorServer` with the same name.
+
+### Player and busy rules (step 2)
+
+`AirPlayReceiver` plays an Apple device through the same `VideoDecoder`, `AudioPlayer`
+and `PlaybackClock` as a phone, so the decode-ahead, the even pacing, the refresh-rate
+switch, the statistics and the Fire TV's low-latency decoding apply as they are:
+
+- **Video:** Apple devices send the parameter sets and the keyframe in one buffer; they
+  are split, the parameter sets going in as codec config (H.264 SPS rewritten as for
+  phones). Timestamps are the sender's NTP time, the clock its sound uses too. UxPlay
+  reports the picture size only once, but an iPad that turns changes it in the stream,
+  so the TV follows the size the decoder reports. Buffers UxPlay couldn't decrypt are
+  dropped. AirPlay can't ask for a keyframe; Apple devices send one often enough.
+- **Sound:** AAC-ELD (AAC-LC also works) through `MediaCodec`, set up with the
+  AudioSpecificConfig UxPlay's own player uses (44.1 kHz stereo, 480 samples per
+  frame). Sound from before UxPlay synced with the sender's clock is dropped.
+- **Busy rules:** `Screen` holds the one session on screen, a phone's or an Apple
+  device's, and both servers decide with `Admission`. An Apple device that finds the
+  TV busy is turned away (UxPlay answers 401), or, where the TV lets others take over,
+  replaces the phone, which hears "replaced". A phone that takes over from an Apple
+  device, or the TV app being left, drops the Apple device's connection; AirPlay has no
+  goodbye with a reason. While one Apple device mirrors, another one always hears busy
+  (UxPlay's `nohold` is off), whatever the setting.
+- **Fit:** pictures narrower than 3:2, like an iPad's 4:3, are shown whole; filling
+  would cut off a quarter.
 
 ### CI
 
@@ -414,7 +438,16 @@ Seen so far with a MacBook Pro on macOS 27.0.1 (AirPlay 980.77.5) and the Fire T
 sound comes as AAC-ELD (480 samples per frame) once something plays. Stopping on the
 Mac ends the session cleanly, and mirroring again right after works. The TV keeps
 UxPlay's key across restarts. An iPad Pro (iPad13,8, AirPlay 950.7.1) does the same,
-with H.264 at 1442×1080, its 4:3 screen at 1080 lines.
+with H.264 at 1442×1080, its 4:3 screen at 1080 lines. After the update to iPadOS 27
+(AirPlay 1005.13.1) it still mirrors with sound, so UxPlay #535 doesn't hit either
+device with UxPlay's `master`. Both send H.264 although the TV offers H.265.
+
+Step 2 on the same devices: the Mac and the iPad show on the TV with sound in sync,
+about a quarter of a second of sound queued and nothing dropped; 25 fps video switches
+the TV to 50 Hz as with phones. The iPad turning to portrait (810×1080) and back shows
+undistorted. The PC test sender connecting while the iPad mirrors hears "busy" and the
+iPad carries on. Home on the remote ends the iPad's mirroring and the server takes the
+next one.
 
 ### Risks
 
@@ -463,8 +496,11 @@ milliseconds.
 - The Pixel's and Samsung's Cast buttons won't list Beamline; start from the
   Beamline app or its Quick Settings tile.
 - Secure (DRM) content is black, and apps that opt out of audio capture are silent.
-- AirPlay from iPadOS 27 depends on UxPlay; see
-  [UxPlay #535](https://github.com/FDH2/UxPlay/issues/535).
+- AirPlay depends on UxPlay. [UxPlay #535](https://github.com/FDH2/UxPlay/issues/535)
+  (iOS 27 never opening the video connection) didn't show with macOS 27 or iPadOS 27.
+- When the TV ends an Apple device's mirroring (the TV app left, a phone taking over),
+  the iPad can keep showing that it mirrors; it has to be stopped in its Control Center
+  before it mirrors again.
 - Android 14+ asks for screen-capture consent at the start of every session. That is
   an Android rule, not something Beamline can skip.
 - When a phone locks, Android stops sending the screen's picture. The phone app keeps

@@ -359,7 +359,8 @@ private fun ZoomHint(fill: Boolean, modifier: Modifier) {
   )
 }
 
-private const val MIN_FILL_ASPECT = 1.3f
+/** Wider than a 4:3 iPad (1.33) or a 3:2 laptop: those are shown whole, as filling would cut off a quarter. */
+private const val MIN_FILL_ASPECT = 1.5f
 private const val HINT_MS = 4_000L
 
 @Composable

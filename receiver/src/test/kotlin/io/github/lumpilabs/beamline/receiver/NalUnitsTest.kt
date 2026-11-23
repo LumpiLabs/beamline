@@ -1,7 +1,11 @@
 package io.github.lumpilabs.beamline.receiver
 
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class NalUnitsTest {
   private fun bytes(vararg values: Int) = ByteArray(values.size) { values[it].toByte() }
@@ -23,5 +27,37 @@ class NalUnitsTest {
   @Test
   fun noStartCodeNoTypes() {
     assertEquals(emptyList(), NalUnits.types(bytes(1, 2, 3, 4, 5), h265 = false))
+  }
+
+  @Test
+  fun splitsParameterSetsFromAKeyframe() {
+    // As an Apple device sends it: SPS, PPS, SEI and IDR in one buffer.
+    val sps = bytes(0, 0, 0, 1, 0x67, 0x42)
+    val pps = bytes(0, 0, 0, 1, 0x68, 0xCE)
+    val sei = bytes(0, 0, 0, 1, 0x06, 0x05)
+    val idr = bytes(0, 0, 0, 1, 0x65, 0x88, 0x84)
+    val split = NalUnits.split(sps + pps + sei + idr, h265 = false)
+    assertContentEquals(sps + pps, split.parameterSets)
+    assertContentEquals(sei + idr, split.picture)
+    assertTrue(split.keyframe)
+  }
+
+  @Test
+  fun aSliceAloneIsNoKeyframeAndHasNoParameterSets() {
+    val slice = bytes(0, 0, 0, 1, 0x41, 0x9A, 0x22)
+    val split = NalUnits.split(slice, h265 = false)
+    assertNull(split.parameterSets)
+    assertContentEquals(slice, split.picture)
+    assertFalse(split.keyframe)
+  }
+
+  @Test
+  fun h265CraIsAKeyframe() {
+    val vps = bytes(0, 0, 0, 1, 0x40, 1)
+    val cra = bytes(0, 0, 1, 0x2A, 1, 0xAF)
+    val split = NalUnits.split(vps + cra, h265 = true)
+    assertContentEquals(vps, split.parameterSets)
+    assertContentEquals(cra, split.picture)
+    assertTrue(split.keyframe)
   }
 }
