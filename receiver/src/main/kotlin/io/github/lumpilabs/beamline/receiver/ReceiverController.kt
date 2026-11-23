@@ -28,8 +28,14 @@ sealed interface ReceiverState {
 
   data class Connected(val senderName: String, val video: VideoSize? = null) : ReceiverState
 
-  /** Pairing with [senderName]: [code] shows on both screens. [mustAllow]: OK on the remote is needed too. */
-  data class Pairing(val senderName: String, val code: String, val mustAllow: Boolean) : ReceiverState
+  /**
+   * Pairing with [senderName]: [code] shows on both screens. [mustAllow]: OK on the remote is needed
+   * too; [allowed] once it was pressed, while the phone's user may still be comparing the code.
+   */
+  data class Pairing(val senderName: String, val code: String, val mustAllow: Boolean, val allowed: Boolean = false) : ReceiverState {
+    /** OK allows the phone and Back declines it. */
+    val waitsForOk: Boolean get() = mustAllow && !allowed
+  }
 
   data class Failed(val message: String) : ReceiverState
 }
@@ -151,7 +157,10 @@ class ReceiverController(
 
   /** OK (true) or Back (false) on the remote while a pairing waits for the TV's user. */
   fun answerPairing(allowed: Boolean) {
-    pendingPairing?.complete(allowed)
+    val pending = pendingPairing ?: return
+    pending.complete(allowed)
+    // The screen says so, instead of asking for OK until the phone has answered too.
+    if (allowed) _state.update { if (it is ReceiverState.Pairing) it.copy(allowed = true) else it }
   }
 
   /** The phone has to pair again before it can mirror here, or open the TV app by connecting. */

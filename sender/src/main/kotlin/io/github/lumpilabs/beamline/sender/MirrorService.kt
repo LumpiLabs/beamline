@@ -24,20 +24,24 @@ import kotlinx.coroutines.launch
  * While mirroring it can also keep the screen on, dimmed ([SenderPrefs.keepAwake]): once the phone
  * locks, Android stops sending the picture.
  *
- * When a first connection asks whether the TV shows the same pairing code, a notification pops up
- * with the code and both answers, because mirroring often starts from the Quick Settings tile with
- * the app closed.
+ * Its notification says where the session stands, so it never claims to mirror while the phone is
+ * still connecting or pairing. When a first connection asks whether the TV shows the same pairing
+ * code, the notification asks it, with the code and both answers, and pops up: mirroring often
+ * starts from the Quick Settings tile with the app closed.
  */
 class MirrorService : Service() {
   @Volatile private var session: SenderSession? = null
   private var screenLock: PowerManager.WakeLock? = null
   private val scope = MainScope()
 
+  /** Set once the notification is the foreground one; touched on the main thread only. */
+  private var inForeground = false
+
   override fun onBind(intent: Intent?): IBinder? = null
 
   override fun onCreate() {
     super.onCreate()
-    scope.launch { MirrorState.status.collect(::showPairingNotification) }
+    scope.launch { MirrorState.status.collect(::showStatus) }
   }
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -67,7 +71,9 @@ class MirrorService : Service() {
       return START_NOT_STICKY
     }
 
-    startForeground(NOTIFICATION_ID, notification(target.name), ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
+    val connecting = checkNotNull(notification(MirrorStatus.Connecting(target.name)))
+    startForeground(NOTIFICATION_ID, connecting, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
+    inForeground = true
     val projection = getSystemService(MediaProjectionManager::class.java).getMediaProjection(resultCode, data)
     if (projection == null) {
       MirrorState.set(this, MirrorStatus.Failed(getString(R.string.error_capture_denied)))
@@ -92,38 +98,14 @@ class MirrorService : Service() {
     screenLock?.release()
     screenLock = null
     scope.cancel()
-    getSystemService(NotificationManager::class.java).cancel(PAIRING_NOTIFICATION_ID)
     super.onDestroy()
   }
 
-  /** Shows the pairing question while it is open, and removes it once answered. */
-  private fun showPairingNotification(status: MirrorStatus) {
-    val manager = getSystemService(NotificationManager::class.java)
-    if (status !is MirrorStatus.Pairing) {
-      manager.cancel(PAIRING_NOTIFICATION_ID)
-      return
-    }
-    manager.createNotificationChannel(
-      NotificationChannel(PAIRING_CHANNEL_ID, getString(R.string.pairing_channel), NotificationManager.IMPORTANCE_HIGH),
-    )
-    fun answer(matches: Boolean) = PendingIntent.getService(
-      this,
-      if (matches) 1 else 2,
-      Intent(this, MirrorService::class.java).setAction(ACTION_PAIRING_ANSWER).putExtra(EXTRA_MATCHES, matches),
-      PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-    )
-    val notification = Notification.Builder(this, PAIRING_CHANNEL_ID)
-      .setSmallIcon(R.drawable.ic_notification)
-      .setContentTitle(getString(R.string.pairing_notification_title, status.receiver))
-      .setContentText(getString(R.string.status_pairing, status.receiver, spacedCode(status.code)))
-      .setContentIntent(
-        PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE),
-      )
-      .setOngoing(true)
-      .addAction(Notification.Action.Builder(null, getString(R.string.pairing_matches), answer(true)).build())
-      .addAction(Notification.Action.Builder(null, getString(R.string.pairing_differs), answer(false)).build())
-      .build()
-    manager.notify(PAIRING_NOTIFICATION_ID, notification)
+  /** Brings the notification up to date with the session; the service ends with Idle and Failed. */
+  private fun showStatus(status: MirrorStatus) {
+    if (!inForeground) return
+    val notification = notification(status) ?: return
+    getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification)
   }
 
   /**
@@ -148,31 +130,56 @@ class MirrorService : Service() {
     }
   }
 
-  private fun notification(receiverName: String): Notification {
+  /**
+   * The notification for [status], or null for Idle and Failed. The pairing question goes on a
+   * channel that pops up, with both answers instead of Stop; everything else stays quiet.
+   */
+  private fun notification(status: MirrorStatus): Notification? {
+    val (title, text) = when (status) {
+      is MirrorStatus.Connecting -> getString(R.string.status_connecting, status.receiver) to null
+      is MirrorStatus.Pairing ->
+        getString(R.string.pairing_notification_title, status.receiver) to
+          getString(R.string.status_pairing, status.receiver, spacedCode(status.code))
+      is MirrorStatus.AllowOnTv ->
+        getString(R.string.pairing_notification_title, status.receiver) to getString(R.string.status_allow_on_tv, status.receiver)
+      is MirrorStatus.Mirroring -> getString(R.string.notification_title, status.receiver) to null
+      is MirrorStatus.Reconnecting -> getString(R.string.status_reconnecting, status.receiver) to null
+      MirrorStatus.Idle, is MirrorStatus.Failed -> return null
+    }
     val manager = getSystemService(NotificationManager::class.java)
     manager.createNotificationChannel(
       NotificationChannel(CHANNEL_ID, getString(R.string.notification_channel), NotificationManager.IMPORTANCE_LOW),
     )
-    val stopIntent = PendingIntent.getService(
-      this,
-      0,
-      Intent(this, MirrorService::class.java).setAction(ACTION_STOP),
-      PendingIntent.FLAG_IMMUTABLE,
+    manager.createNotificationChannel(
+      NotificationChannel(PAIRING_CHANNEL_ID, getString(R.string.pairing_channel), NotificationManager.IMPORTANCE_HIGH),
     )
-    val openIntent = PendingIntent.getActivity(
-      this,
-      0,
-      Intent(this, MainActivity::class.java),
-      PendingIntent.FLAG_IMMUTABLE,
-    )
-    return Notification.Builder(this, CHANNEL_ID)
+    val asks = status is MirrorStatus.Pairing
+    val builder = Notification.Builder(this, if (asks) PAIRING_CHANNEL_ID else CHANNEL_ID)
       .setSmallIcon(R.drawable.ic_notification)
-      .setContentTitle(getString(R.string.notification_title, receiverName))
-      .setContentIntent(openIntent)
+      .setContentTitle(title)
+      .setContentIntent(PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE))
       .setOngoing(true)
-      .addAction(Notification.Action.Builder(null, getString(R.string.stop), stopIntent).build())
-      .build()
+    text?.let { builder.setContentText(it).setStyle(Notification.BigTextStyle().bigText(it)) }
+    if (asks) {
+      builder.addAction(action(R.string.pairing_matches, pairingAnswer(true)))
+      builder.addAction(action(R.string.pairing_differs, pairingAnswer(false)))
+    } else {
+      val stop = Intent(this, MirrorService::class.java).setAction(ACTION_STOP)
+      builder.addAction(action(R.string.stop, PendingIntent.getService(this, 0, stop, PendingIntent.FLAG_IMMUTABLE)))
+    }
+    return builder.build()
   }
+
+  private fun action(label: Int, intent: PendingIntent): Notification.Action =
+    Notification.Action.Builder(null, getString(label), intent).build()
+
+  private fun pairingAnswer(matches: Boolean): PendingIntent =
+    PendingIntent.getService(
+      this,
+      if (matches) 1 else 2,
+      Intent(this, MirrorService::class.java).setAction(ACTION_PAIRING_ANSWER).putExtra(EXTRA_MATCHES, matches),
+      PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+    )
 
   companion object {
     private const val ACTION_STOP = "io.github.lumpilabs.beamline.sender.STOP"
@@ -180,7 +187,6 @@ class MirrorService : Service() {
     private const val ACTION_PAIRING_ANSWER = "io.github.lumpilabs.beamline.sender.PAIRING_ANSWER"
     private const val EXTRA_MATCHES = "matches"
     private const val PAIRING_CHANNEL_ID = "pairing"
-    private const val PAIRING_NOTIFICATION_ID = 2
     private const val EXTRA_RESULT_CODE = "result_code"
     private const val EXTRA_RESULT_DATA = "result_data"
     private const val EXTRA_NAME = "name"
