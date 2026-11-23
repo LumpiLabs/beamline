@@ -97,6 +97,8 @@ class ReceiverController(
 
   private val advertiser = ServiceAdvertiser(context)
   private var server: MirrorServer? = null
+  private val airPlay = AirPlayReceiver(context, advertiser)
+  private var airPlayStarted = false
   private var candidateHz: Float? = null
   private var candidateReports = 0
 
@@ -114,10 +116,22 @@ class ReceiverController(
     } catch (e: IOException) {
       newServer.stop()
       _state.value = ReceiverState.Failed(e.message ?: e.javaClass.simpleName)
+      return
+    }
+    // Phones still work if AirPlay doesn't start, so that is only logged.
+    try {
+      airPlay.start(tvName)
+      airPlayStarted = true
+    } catch (e: IllegalStateException) {
+      Log.e(TAG, "AirPlay didn't start", e)
+    } catch (e: UnsatisfiedLinkError) {
+      Log.e(TAG, "AirPlay isn't built for this device", e)
     }
   }
 
   fun stop() {
+    if (airPlayStarted) airPlay.stop()
+    airPlayStarted = false
     advertiser.unregister()
     server?.stop()
     server = null

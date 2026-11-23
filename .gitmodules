@@ -1,0 +1,9 @@
+[submodule "airplay/third_party/uxplay"]
+	path = airplay/third_party/uxplay
+	url = https://github.com/FDH2/UxPlay.git
+[submodule "airplay/third_party/boringssl"]
+	path = airplay/third_party/boringssl
+	url = https://github.com/google/boringssl.git
+[submodule "airplay/third_party/libplist"]
+	path = airplay/third_party/libplist
+	url = https://github.com/libimobiledevice/libplist.git

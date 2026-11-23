@@ -12,6 +12,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # UxPlay, BoringSSL and libplist for the AirPlay receiver (airplay/third_party)
+          submodules: true
 
       - uses: actions/setup-java@v6
         with:
@@ -19,6 +22,13 @@ jobs:
           java-version: 21
 
       - uses: gradle/actions/setup-gradle@v6
+
+      - name: Install the NDK and CMake for the AirPlay receiver
+        # The versions airplay/build.gradle.kts pins (ndkVersion and the CMake version).
+        run: |
+          ndk=$(sed -n 's/^ *ndkVersion = "\(.*\)"/\1/p' airplay/build.gradle.kts)
+          cmake=$(sed -n 's/^ *version = "\(.*\)"/\1/p' airplay/build.gradle.kts)
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$ndk" "cmake;$cmake" > /dev/null
 
       - name: Install MinGW-w64 for the Windows sender's capture library
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends g++-mingw-w64-x86-64
